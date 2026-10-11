@@ -1,0 +1,24 @@
+# 生成物与构建产物：随时可重建，不进版本库。
+build/
+
+# 文法生成器（ParseEngine）是**外部依赖**：可直接放在项目根目录（Makefile 默认先找它），
+# 不进版本库。
+/ParseEngine
+/ParseEngine.exe
+
+# 中间产物 / 临时目录。
+*.o
+*.a
+*.exe
+tmp/
+__pycache__/
+*.py[cod]
+
+# 兜底：某些 shell 下 `2>NUL` 会真的建出一个叫 NUL 的空文件（见 Makefile 注释）。
+NUL
+
+# 编辑器 / 系统。
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

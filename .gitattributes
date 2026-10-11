@@ -1,0 +1,14 @@
+# rust-view 独立仓库的属性：与 ParseEngine 仓库根的那份同规矩，但这份跟着
+# rust-view 走（剥离出去、单独克隆时，仓库根的那份就管不到这里了）。
+#
+# 语言统计：`.gram` 是**本项目自己的语言名**（ParseEngine 文法），GitHub 的
+# Linguist 只认它自带 `languages.yml` 里的名字，自造名会被静默忽略（那时这些
+# 文件不计入任何语言）。要让它们成为正式语言名得给 Linguist 提 PR；在那之前，
+# 认这份声明的平台 / 工具（以及本地统计）会按下面的名字显示。
+*.rs linguist-language=Rust
+*.gram linguist-language=ParseEngine
+
+# 行尾：源码在 git 里存 LF，Windows 工作区按 core.autocrlf 转 CRLF。
+# demo 的 .html/.svg 是**生成的确定产物**，逐字节比对时两端必须一致，钉死 LF。
+*.html text eol=lf
+*.svg text eol=lf

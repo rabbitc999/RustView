@@ -1,0 +1,165 @@
+/* ============================================================
+ * RustView —— 「Rust 借用语义可视化」的权威文法（C++17 · IELR(1)）
+ * ------------------------------------------------------------
+ * 这份文件是这门极简 Rust 伪代码的**唯一语法定义**，由本仓库的解析器生成器
+ * （source/ 的 ParseEngine）生成词法 + 语法分析器：
+ *
+ *   build/bin/ParseEngine rust_subset.gram --lang cpp17 --mode ielr --out-dir <生成目录>
+ *
+ * 分工（和仓库里 magel / metro-lang 的写法一致）：
+ *   ① 词法：每个关键字一个 `%token`，字符串 / 数字走 `%token regex`，
+ *      标识符走 `%identifier`，注释走 `%trivia`，空白走默认的「跳过全部空白」；
+ *   ② 语法：文档 / 函数 / 结构体 / 语句 / 表达式 / 类型 / 列表全是显式产生式，
+ *      块结构（`{ }`）与尾表达式在产生式里点名；
+ *   ③ 语义：产生式只调用 `%code` 里声明的 `rv_*`（建树动作），
+ *      定义在 `%epilogue` 内嵌的 `epilogue/rust_parse.cpp` 里。
+ *
+ * 语言范围（刻意锁死，超出边界一律让生成器报语法错误，绝不「猜」）：
+ *   - 值语义：`int`（赋值是拷贝，画两个独立节点）；
+ *   - 引用语义：`String`（赋值是 Move，原变量变成「已移动」）；
+ *   - 借用：`&T` / `&mut T`，只支持 `&变量` / `&mut 变量` 这种整体借用；
+ *   - 块作用域：`{ }` 可嵌套，变量出块即销毁；
+ *   - 函数：只解析签名（形参类型、返回类型）与函数体里的局部变量，
+ *     调用点按签名黑盒处理；
+ *   - 结构体：只支持整体移动 / 整体借用；`s.a` 这种部分移动会被分析器拒绝。
+ * 不支持：宏、泛型、trait、async、生命周期标注、`for` / `while` / `if`、
+ *         字段级借用、`return`、赋值语句、`match`。
+ * ============================================================ */
+
+%lang cpp17
+%mode ielr
+%value_type int
+
+/* ---------------- 注释：识别出来就丢，不进语法层 ---------------- */
+%trivia "//[^\n]*"
+%trivia "/\\*[\\s\\S]*?\\*/"
+
+/* ---------------- 字面量与标识符 ----------------
+ * 「//」和「/*」在前面先声明，长注释不会被字符串规则抢走；
+ * 字符串规则只认成对的同类引号，标识符规则单调、不会吃掉关键字
+ * （固定字面量的关键字表优先于标识符，见生成产物的 keyword table）。 */
+%token regex STRING "\"([^\"\\\\]|\\\\.)*\""
+%token regex NUMBER "[0-9]+"
+%identifier "[A-Za-z_][A-Za-z0-9_]*"
+
+/* ---------------- 关键字：一个关键字一个 Token ---------------- */
+%token KW_FN     "fn"
+%token KW_LET    "let"
+%token KW_MUT    "mut"
+%token KW_PRINT  "print"
+%token KW_STRUCT "struct"
+%token TY_INT    "int"
+%token TY_STRING "String"
+
+/* ---------------- 标点与运算符 ---------------- */
+%token ARROW  "->"
+%token AMP    "&"
+%token COLON  ":"
+%token SEMI   ";"
+%token ASSIGN "="
+%token COMMA  ","
+%token DOT    "."
+%token LPAREN "("
+%token RPAREN ")"
+%token LBRACE "{"
+%token RBRACE "}"
+
+/* ---------------- 用户代码：建树动作的声明 + Token -> 语义值 ---------------- */
+%code include "include/rust_syntax.hpp"
+
+/* 生成器把语义动作原样展开在**全局作用域**里，而 `rv_*` 都定义在 `rustview`
+ * 命名空间内。这里补一条 using，让产生式里的 `$$ = rv_program($1);` 能直接
+ * 看见这些建树动作（与 metro-lang 的做法一致）。 */
+%code
+using namespace rustview;
+%endcode
+
+%start program
+
+/* LR 分析栈上限：列表是左递归的、平时很浅，这里给足余量防止极端输入顶栈。 */
+%max_stack_depth 4096
+
+/* ============================ 程序 ============================ */
+/* 顶层只放函数与结构体声明（没有顶层 let / print），这样「块作用域」的讨论
+ * 全部发生在函数体里，语义分析的边界更清楚。 */
+program := item_list                { $$ = rv_program($1); }
+
+item_list := %empty                 { $$ = rv_list(); }
+item_list := item_list item         { rv_list_push($1, $2); $$ = $1; }
+
+item := fn_def                      { $$ = $1; }
+item := struct_def                  { $$ = $1; }
+
+/* ============================ 结构体 ============================ */
+/* 字段用逗号分隔，允许尾随逗号（和 Rust 一致）。字段级借用 / 部分移动不在文法里
+ * 单独开分支——`s.a` 是合法表达式，由分析器统一拒绝，报错比语法错误好懂。 */
+struct_def := KW_STRUCT VARIABLE LBRACE field_list RBRACE { $$ = rv_struct($2, $4); }
+
+field_list := %empty                                      { $$ = rv_list(); }
+field_list := field_list VARIABLE COLON type COMMA        { rv_struct_field($1, $2, $4); $$ = $1; }
+field_list := field_list VARIABLE COLON type              { rv_struct_field($1, $2, $4); $$ = $1; }
+
+/* ============================ 函数 ============================ */
+/* 只解析签名 + 函数体；函数体用于「局部变量在哪儿声明、返回的引用指向谁」，
+ * 调用点不会展开函数体。 */
+fn_def := KW_FN VARIABLE LPAREN param_list RPAREN fn_return block
+    { $$ = rv_fn($2, $4, $6, $7); }
+
+fn_return := %empty                 { $$ = rv_none(); }
+fn_return := ARROW type             { $$ = $2; }
+
+param_list := %empty                                  { $$ = rv_list(); }
+param_list := param_list VARIABLE COLON type COMMA    { rv_param($1, $2, $4); $$ = $1; }
+param_list := param_list VARIABLE COLON type          { rv_param($1, $2, $4); $$ = $1; }
+
+/* ============================ 类型 ============================ */
+/* 类型名既可以是 `int` / `String`，也可以是用户定义的结构体名；
+ * `&T` 与 `&mut T` 各占一条产生式，`mut` 是独立 Token，必须点名。 */
+type := type_name                   { $$ = rv_type($1, 0, 0); }
+type := AMP type_name               { $$ = rv_type($2, 1, 0); }
+type := AMP KW_MUT type_name        { $$ = rv_type($3, 1, 1); }
+
+type_name := VARIABLE               { $$ = $1; }
+type_name := TY_INT                 { $$ = $1; }
+type_name := TY_STRING              { $$ = $1; }
+
+/* ============================ 块与语句 ============================ */
+/* 块可以只有语句，也可以在最后跟一个**尾表达式**——尾表达式的值就是块的返回值
+ * （Rust 里 `{ 42 }` 求值为 42）。两条产生式靠 `}` 与表达式起始符区分，
+ * 不需要额外的前瞻：LALR 看到 `RBRACE` 就归约「没有尾表达式」那条。 */
+block := LBRACE stmt_list RBRACE            { $$ = rv_block($2, rv_none()); }
+block := LBRACE stmt_list tail_expr RBRACE  { $$ = rv_block($2, $3); }
+
+tail_expr := expr                   { $$ = $1; }
+
+stmt_list := %empty                 { $$ = rv_list(); }
+stmt_list := stmt_list stmt         { rv_list_push($1, $2); $$ = $1; }
+
+stmt := let_stmt                    { $$ = $1; }
+stmt := print_stmt                  { $$ = $1; }
+stmt := block                       { $$ = $1; }
+stmt := expr SEMI                   { $$ = rv_expr_stmt($1); }
+
+let_stmt := KW_LET VARIABLE ASSIGN expr SEMI          { $$ = rv_let($2, 0, $4); }
+let_stmt := KW_LET KW_MUT VARIABLE ASSIGN expr SEMI   { $$ = rv_let($3, 1, $5); }
+
+/* `print` 是唯一的输出语句，在分析里只当作「一次使用」，用来演示
+ * 「试图打印已移动的变量」这类错误。 */
+print_stmt := KW_PRINT LPAREN expr RPAREN SEMI        { $$ = rv_print($3); }
+
+/* ============================ 表达式 ============================ */
+/* 借用只允许 `&变量` / `&mut 变量`：借用是「整体借用」，
+ * 所以 `&s.field`、`&f()`、`&*p` 一律不合法（文法直接不认）。 */
+expr := NUMBER                      { $$ = rv_int_lit($1); }
+expr := STRING                      { $$ = rv_str_lit($1); }
+expr := VARIABLE                    { $$ = rv_var($1); }
+expr := AMP VARIABLE                { $$ = rv_borrow($2, 0); }
+expr := AMP KW_MUT VARIABLE         { $$ = rv_borrow($3, 1); }
+expr := VARIABLE LPAREN arg_list RPAREN { $$ = rv_call($1, $3); }
+expr := expr DOT VARIABLE           { $$ = rv_field_access($1, $3); }
+
+arg_list := %empty                  { $$ = rv_list(); }
+arg_list := arg_list expr COMMA     { rv_list_push($1, $2); $$ = $1; }
+arg_list := arg_list expr           { rv_list_push($1, $2); $$ = $1; }
+
+%epilogue include "epilogue/rust_parse.cpp"

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RustView · Rust 借用语义可视化</title>
+<style>
+:root{--bg:#f4f7fb;--panel:#fff;--line:#d8e1ee;--ink:#10233f;--note:#55677f;--bad:#d93a3a;--ok:#1e6b46}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Microsoft YaHei','Segoe UI','Noto Sans SC',system-ui,sans-serif}
+.wrap{max-width:1360px;margin:0 auto;padding:24px}
+header{display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:12px;border:1px solid var(--line);background:var(--panel)}
+header.ok{border-left:6px solid var(--ok)}
+header.bad{border-left:6px solid var(--bad)}
+header h1{margin:0;font-size:18px}
+header .status{margin-left:auto;font-weight:700;font-size:14px}
+header.ok .status{color:var(--ok)}
+header.bad .status{color:var(--bad)}
+.meta{margin:6px 0 0;color:var(--note);font-size:13px}
+.canvas{margin:18px 0;padding:8px;border-radius:12px;border:1px solid var(--line);background:var(--panel);overflow:auto}
+.canvas svg{display:block;max-width:100%;height:auto}
+section.issues{padding:14px 18px;border-radius:12px;border:1px solid var(--line);background:var(--panel)}
+section.issues h2{margin:0 0 8px;font-size:15px}
+ul{margin:0;padding-left:20px}
+li{margin:4px 0;font-size:13px;line-height:1.6}
+li.unsupported{color:#8a2f2f;font-weight:700}
+li.error{color:var(--bad)}
+li.ok{color:var(--ok)}
+footer{margin-top:14px;color:var(--note);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bad">
+    <div><h1>RustView · Rust 借用语义可视化</h1>
+    <p class="meta">D:\Desktop\Workspace\rust-view\examples\use_after_move.rs</p></div>
+    <div class="status">失败 · 已阻止渲染</div>
+  </header>
+  <div class="canvas">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 400" width="1320" height="400" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif">
+<defs><marker id="rv-arrow-move" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7c93"/></marker><marker id="rv-arrow-imm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2f7fd1"/></marker><marker id="rv-arrow-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#e08a1e"/></marker><marker id="rv-arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#d93a3a"/></marker></defs>
+<rect x="0" y="0" width="1320" height="400" rx="0" fill="#f4f7fb"/><text x="40" y="46" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="24" fill="#10233f" font-weight="700">RustView · Rust 借用语义可视化</text><text x="40" y="70" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="13" fill="#d93a3a">D:\Desktop\Workspace\rust-view\examples\use_after_move.rs · 分析失败 · 1 处借用冲突</text><rect x="1110" y="24" width="170" height="30" rx="15" fill="#ffecec" stroke="#d93a3a" stroke-width="1.4"/><text x="1195" y="44" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="13" fill="#d93a3a" font-weight="700" text-anchor="middle">FAILED · 已阻止渲染</text><rect x="40" y="92" width="380" height="200" rx="12" fill="#ffffff" stroke="#d8e1ee" stroke-width="1"/><rect x="470" y="92" width="340" height="200" rx="12" fill="#ffffff" stroke="#d8e1ee" stroke-width="1"/><rect x="850" y="92" width="430" height="200" rx="12" fill="#ffffff" stroke="#d8e1ee" stroke-width="1"/><text x="54" y="118" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="15" fill="#14507e" font-weight="700">栈 · 作用域</text><text x="484" y="118" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="15" fill="#14507e" font-weight="700">函数调用栈</text><text x="864" y="118" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="15" fill="#14507e" font-weight="700">堆对象</text><rect x="48" y="126" width="350" height="148" rx="8" fill="#fbfcfe" stroke="#d8e1ee" stroke-width="1.6"/><line x1="54" y1="172" x2="392" y2="172" stroke="#d8e1ee" stroke-width="1"/><text x="58" y="159" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="12" fill="#14507e" font-weight="700">fn main（第 4 行）</text><rect x="52" y="185" width="346" height="38" rx="7" fill="#ffecec" stroke="#d93a3a" stroke-width="2.2"/><text x="64" y="202" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="13" fill="#d93a3a" font-weight="700">s1</text><text x="64" y="217" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="11" fill="#d93a3a">String · 已移动</text><text x="388" y="202" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="11" fill="#d93a3a" font-weight="700" text-anchor="end">冲突</text><rect x="52" y="233" width="346" height="38" rx="7" fill="#ffffff" stroke="#c9dcf0" stroke-width="1"/><text x="64" y="250" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="13" fill="#22364f" font-weight="700">s2</text><text x="64" y="265" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="11" fill="#22364f">String · Initialized</text><rect x="862" y="137" width="406" height="38" rx="7" fill="#eaf6ef" stroke="#bfe0cc" stroke-width="1"/><text x="874" y="154" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="13" fill="#1e6b46" font-weight="700">String &quot;hello&quot;</text><text x="874" y="169" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="11" fill="#3f6c53">所有者：s2（第 6 行创建）</text><path d="M 398 252 C 550 252, 550 156, 862 156" fill="none" stroke="#9bb8d4" stroke-width="1.6"/><path d="M 398 204 C 436 204, 436 252, 398 252" fill="none" stroke="#6b7c93" stroke-width="1.6" marker-end="url(#rv-arrow-move)"/><text x="440" y="224" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="10" fill="#6b7c93">move（所有权转移，第 6 行）</text><text x="40" y="328" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="13" fill="#d93a3a" font-weight="700">诊断（控制台同样会打印这些内容）</text><text x="40" y="352" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="12" fill="#d93a3a">· [第 7 行 · 冲突] 使用了已被移动（move）的变量 `s1`：所有权已经不在它身上了</text><text x="1280" y="391" font-family="&#39;Microsoft YaHei&#39;, &#39;Segoe UI&#39;, &#39;Noto Sans SC&#39;, sans-serif" font-size="10" fill="#55677f" text-anchor="end">RustView 1.0 · 功能冻结（除明确 BUG 外不再改动）</text></svg>
+  </div>
+  <section class="issues">
+    <h2>分析结果：分析失败 · 1 处借用冲突</h2>
+    <ul>
+      <li class="error">第 7 行：【借用冲突】使用了已被移动（move）的变量 `s1`：所有权已经不在它身上了</li>
+    </ul>
+  </section>
+  <footer>由 RustView 1.0 生成（功能冻结，除明确 BUG 外不再改动）：文法由本仓库的 ParseEngine 从 <code>rust_subset.gram</code> 生成（IELR(1) / C++17），图表是纯字符串拼接的 SVG。</footer>
+</div>
+</body>
+</html>
