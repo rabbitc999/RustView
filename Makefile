@@ -6,6 +6,7 @@
 #   make gen        只重新生成解析器（改了 rust_subset.gram / epilogue 之后跑）
 #   make check      跑五组样例：正常 / 借用冲突 / 悬垂 / move 后使用 / 不支持结构
 #   make preview    重生成 doc/ 里的效果图与演示页（README 用）
+#   make overview   重生成 doc/overview/ 里的项目总览图（需要 Pillow）
 #   make clean      清掉本工程的构建产物
 #
 # 前端由外部的 ParseEngine 生成器产出（本项目只有 .gram），src/ 里不写 lexer / parser。
@@ -85,7 +86,7 @@ DEPS := $(OBJS:.o=.d)
 # 显式钉死默认目标：`-include` 进来的 .d 文件里带着 `obj/xx.o: ...` 规则，
 # 若不钉住，make 会把「第一个遇到的规则」当成默认目标（只会去编某个 .o，
 # 却不链接可执行文件）。加这一行后 `make` 一定走 `all`。
-.PHONY: all gen check preview clean
+.PHONY: all gen check preview overview clean
 
 all: $(BIN)
 
@@ -164,6 +165,12 @@ preview: $(BIN)
 	$(PYTHON) $(CURDIR)/tools/make_preview.py --bin $(BIN) \
 		--examples $(CURDIR)/examples --out $(CURDIR)/doc --scale $(PREVIEW_SCALE)
 	@echo "previews updated: doc/preview*.svg / .png / .html"
+
+# 重生成 doc/overview/ 里的项目总览图（PNG + SVG）。只依赖 Python 3 + Pillow，
+# 不依赖本工程的编译产物；改了 tools/make_overview.py 的文案就重跑它。
+overview:
+	$(PYTHON) $(CURDIR)/tools/make_overview.py
+	@echo "overview updated: doc/overview/RustView-overview.png / .svg"
 
 clean:
 	@rm -rf $(BUILD)

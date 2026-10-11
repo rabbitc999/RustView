@@ -16,7 +16,9 @@
 ![正常样例效果图](doc/preview.png)
 
 > 上面这张图由 `examples/borrow_ok.rs` 生成。点开看可交互的单文件演示页：
-> [**doc/preview.html**](doc/preview.html)（自包含，离线可看）。
+> [**doc/preview.html**](doc/preview.html)（自包含，离线可看）。项目结构总览图在
+> [doc/overview/RustView-overview.png](doc/overview/RustView-overview.png)
+> （`make overview` 重生成）。
 
 ## 版本与冻结
 
@@ -212,7 +214,9 @@ Token 到语义值的转换由文法里的宏完成：
 ├── CHANGELOG.md            # 变更记录 / 冻结口径
 ├── examples/*.rs           # 5 组样例（正常 / 三类报错 / 不支持）
 ├── doc/                    # README 用的效果图（svg/png）与演示页（html）
+├── doc/overview/           # 项目总览图（make overview 重生成）
 ├── tools/make_preview.py   # 批量重生成 doc/ 效果图
+├── tools/make_overview.py  # 重生成项目总览图（底座在 tools/overview_canvas.py）
 ├── ci.sh                   # 发布门禁：make all → check → preview
 ├── AGENTS.md               # 代码编写要求与提交要求
 ├── .gitignore              # build/ 与外部生成器等不进版本库

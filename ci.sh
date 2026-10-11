@@ -106,6 +106,9 @@ run_step "样例断言（make check）" "$MAKE" check "PARSER=$PARSER"
 # ---- 3. doc/ 效果图重生成（可选；与仓库里已提交的产物对比能发现"图没跟上代码"）----
 if [ "$run_preview" = 1 ]; then
     run_step "重生成 doc/ 效果图（make preview）" "$MAKE" preview "PARSER=$PARSER"
+    if have python3 || have python; then
+        run_step "重生成总览图（make overview）" "$MAKE" overview
+    fi
 fi
 
 # ---- 汇总 ----
