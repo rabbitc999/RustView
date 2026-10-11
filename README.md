@@ -8,7 +8,7 @@ RustView 把一段**极简 Rust 伪代码**画成一张 **SVG 图**和一个 **H
 **76 个 IELR 状态、0 个未消解冲突**。
 
 > 本工程是**独立仓库** <https://gitee.com/rabbitc999/rust-view>（早期在 ParseEngine 仓库里
-> 长大，现与 Magel、MetroLang、Hydra86 同例拆出）。生成器 ParseEngine 是外部依赖：
+> 长大，现与 Magel、MetroLang、Hydra86、CAS 同例拆出）。生成器 ParseEngine 是外部依赖：
 > 本仓库只含 `.gram`，构建时自动找旁边的 ParseEngine 仓库（见下）。
 
 ![正常样例效果图](doc/preview.png)
