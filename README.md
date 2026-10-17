@@ -1,11 +1,11 @@
 # RustView
 
-RustView 把一段**极简 Rust 伪代码**画成一张 **SVG 图**和一个 **HTML 展示页**，让不懂 Rust 的人一眼看懂**值语义**、**移动（Move）**、**借用（`&` / `&mut`）**、**块作用域**、**借用冲突**和**悬垂指针**。
+RustView 把一段**极简 Rust 伪代码**画成一张 **SVG 图**和一个 **HTML 展示页**，让不懂 Rust 的人一眼看懂**值语义**、**移动（Move）**、**借用（`&` / `&mut`）**、**块作用域**、**借用冲突**、**悬垂指针**和**生命周期标注的读法**。
 
 整个工具零第三方依赖：图表是标准库字符串拼出来的 SVG，前端由外部的解析器生成器
 **ParseEngine** 从 [rust_subset.gram](rust_subset.gram) 生成（`cpp17` 后端 + `ielr` 模式），
-`src/` 里**没有手写的 lexer / parser**。文法共 **20 个 Token、43 条产生式**，生成报告显示
-**76 个 IELR 状态、0 个未消解冲突**。
+`src/` 里**没有手写的 lexer / parser**。文法共 **24 个 Token、53 条产生式**，生成报告显示
+**97 个 IELR 状态、0 个未消解冲突**。
 
 > 本工程是**独立仓库** <https://gitee.com/rabbitc999/rust-view>（早期在 ParseEngine 仓库里
 > 长大，现与 Magel、MetroLang、Hydra86、CAS 同例拆出）。生成器 ParseEngine 是外部依赖：
@@ -20,9 +20,9 @@ RustView 把一段**极简 Rust 伪代码**画成一张 **SVG 图**和一个 **H
 
 ## 版本与冻结
 
-当前版本 **1.0.0**（见 [`VERSION`](VERSION)）。**功能已冻结**：语言边界、借用分析规则、
-退出码约定与图表版面都视为稳定契约，后续**除明确 BUG 外不再改动**，也不再接收新特性。
-变更记录见 [`CHANGELOG.md`](CHANGELOG.md)。
+当前版本 **1.1.0**（见 [`VERSION`](VERSION)）。1.0 曾做功能冻结；1.1 按需求解冻，
+加入了**生命周期标注的解析与画图**（只画不校验），其余 1.0 契约（语言边界、借用分析
+规则、退出码约定与图表版面）保持不变。变更记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 快速开始
 
@@ -31,7 +31,7 @@ RustView 把一段**极简 Rust 伪代码**画成一张 **SVG 图**和一个 **H
 
 ```sh
 make             # 生成 C++17 前端并编译出 build/rust-view/rust-view（Windows 上带 .exe）
-make check       # 跑 5 组样例：正常 / 三种报错 / 不支持的语法
+make check       # 跑 6 组样例：正常 / 三种报错 / 不支持的语法 / 生命周期标注
 ```
 
 跑一个自己的文件：
@@ -56,7 +56,7 @@ make check       # 跑 5 组样例：正常 / 三种报错 / 不支持的语法
 | 退出码 | 含义 | 有没有产物 |
 | --- | --- | --- |
 | `0` | 分析通过，无任何诊断 | 有 SVG / HTML |
-| `1` | 语法错误，或有借用冲突 / 悬垂指针 / 使用了已移动的变量 | 语法错误：**无**；借用问题：**有诊断图**（冲突标红） |
+| `1` | 语法错误、生命周期标注写错、或有借用冲突 / 悬垂指针 / 使用了已移动的变量 | 语法错误与生命周期错误：**无**；借用问题：**有诊断图**（冲突标红） |
 | `2` | 出现了**本工具不支持的结构**（如字段级访问 `s.a`） | **绝不生成任何文件** |
 
 ## 语言范围（刻意锁死）
@@ -69,9 +69,10 @@ make check       # 跑 5 组样例：正常 / 三种报错 / 不支持的语法
 | 引用的引用 `&r` | ✅ | 简化模型按「再借一层」处理，共享借用可共存 |
 | 块作用域 `{ }` | ✅ | 可嵌套；出块自动清理变量与借用状态 |
 | 函数 | ✅（签名黑盒） | 只解析签名与函数体局部变量；调用点按签名处理，不展开函数体 |
+| 生命周期标注 | ✅ **只画不校验** | `fn f<'a>` / `&'a T` / `&'a mut T`；图上多一栏「生命周期」解释 `'a` 绑到谁，**不做**合法性校验 |
 | 结构体 | ⚠️ 仅整体 | 只支持整体移动 / 整体借用 |
 | 字段级访问 `s.a` | ❌ **硬失败** | 属于「部分移动 / 字段借用」，报错并**不生成任何图** |
-| 宏 / 泛型 / trait / async / 生命周期标注 | ❌ | 文法直接不认，报语法错误 |
+| 泛型 `<T>` / trait / 宏 / async | ❌ | 文法直接不认，报语法错误 |
 | `for` / `while` / `if` / `match` / `return` / 赋值语句 | ❌ | 同上 |
 | `print(expr);` | ✅ | 只当「用这个值一次」，用来暴露「打印已 move 的变量」这类错误 |
 
@@ -83,6 +84,7 @@ make check       # 跑 5 组样例：正常 / 三种报错 / 不支持的语法
 | [`examples/borrow_conflict.rs`](examples/borrow_conflict.rs) | `&` 还活着时又取 `&mut` → 报错，退出码 1 | [PNG](doc/preview-conflict.png) · [HTML](doc/preview-conflict.html) |
 | [`examples/dangling.rs`](examples/dangling.rs) | 返回局部变量的引用 → 悬垂，退出码 1 | [PNG](doc/preview-dangling.png) · [HTML](doc/preview-dangling.html) |
 | [`examples/use_after_move.rs`](examples/use_after_move.rs) | 读一个已被 move 的变量 → 报错，退出码 1 | [PNG](doc/preview-use-after-move.png) · [HTML](doc/preview-use-after-move.html) |
+| [`examples/lifetime.rs`](examples/lifetime.rs) | 生命周期标注 `'a` 的读法演示 → 分析通过，退出码 0，图上多一栏「生命周期」 | [PNG](doc/preview-lifetime.png) · [HTML](doc/preview-lifetime.html) |
 | [`examples/unsupported_field.rs`](examples/unsupported_field.rs) | 字段级访问 `s.a` → 硬失败，退出码 2，**不写文件** | —— |
 
 三种典型诊断图：
@@ -191,6 +193,19 @@ Token 到语义值的转换由文法里的宏完成：
 | move 后不可用 | 变量 `state == Moved` 时再读 / 再借 → 冲突 |
 | **悬垂指针** | 函数声明返回 `&T`，而函数体把**局部变量**的引用返回出去（或返回的引用绑不到任何传入参数）→ 冲突 |
 
+### 生命周期标注（1.1 新增，只画不校验）
+
+文法认识 `fn first<'a>(s: &'a String) -> &'a String` 这类写法：函数的泛型参数表
+`<'a, 'b: 'a>`、类型里的 `&'a T` / `&'a mut T`（`&mut 'a T` 也认）。但**只解析、只画图，
+不校验**——「返回的引用是否真的来自 `'a`」是借用检查器的事，本工具不做。
+
+- 源码里出现标注时，图上会**多出第四栏「生命周期标注」**：上半截列出每个函数声明的
+  参数表（`fn first<'a>`），下半截列出每个带标注的调用点——`'a` 被绑定到第几个实参上。
+- 引用变量的类型文字会带上标注（`&'a String · Initialized`），和源码写法一致。
+- 标注本身写错（`'a` 没在 `<...>` 里声明、重复声明、`'a: 'a` 自己约束自己）会报
+  `[生命周期]` 错误，**不生成文件**，退出码 1。
+- 不写标注的源码，图和 1.0 完全一样（版面冻结契约保持）。
+
 > 图上快照点取「入口函数 `main` 返回之前」：函数自己那一层作用域这时还没拆，所以它的变量**不**
 > 显示「已销毁」；只有**内层块**退出时被销毁的变量才标灰——那正是块作用域的教学点。
 
@@ -201,19 +216,19 @@ Token 到语义值的转换由文法里的宏完成：
 ├── include/
 │   ├── rust_ast.hpp        # AST：NodeKind + 单一 Node 结构 + 节点池下标句柄
 │   ├── rust_syntax.hpp     # rv_* 建树动作声明、parseText()、Token→语义值宏
-│   ├── analyzer.hpp        # Analyzer：作用域栈 + 借用状态表 + 诊断
+│   ├── analyzer.hpp        # Analyzer：作用域栈 + 借用状态表 + 诊断 + 生命周期注记
 │   └── visualizer.hpp      # Visualizer：AnalysisResult -> SVG / HTML
 ├── src/
 │   ├── main.cpp            # CLI：parseText -> Analyzer -> Visualizer -> 写文件
 │   ├── analyzer.cpp        # 借用分析实现（含每处判断的「为什么」注释）
 │   └── visualizer.cpp      # 纯字符串拼 SVG + HTML 包装（零依赖）
 ├── epilogue/rust_parse.cpp # 内嵌进生成产物的语义层（节点池 + rv_* + parseText 驱动）
-├── VERSION                 # 版本号（当前 1.0.0，功能冻结）
+├── VERSION                 # 版本号（当前 1.1.0：1.0 冻结 + 1.1 生命周期标注）
 ├── CHANGELOG.md            # 变更记录 / 冻结口径
-├── examples/*.rs           # 5 组样例（正常 / 三类报错 / 不支持）
+├── examples/*.rs           # 6 组样例（正常 / 三类报错 / 不支持 / 生命周期标注）
 ├── doc/                    # README 用的效果图（svg/png）与演示页（html）
 ├── doc/overview/           # 项目总览图（make overview 重生成）
-├── tools/make_preview.py   # 批量重生成 doc/ 效果图
+├── tools/make_preview.py   # 批量重生成 doc/ 效果图（cairosvg 或浏览器截图）
 ├── tools/make_overview.py  # 重生成项目总览图（底座在 tools/overview_canvas.py）
 ├── ci.sh                   # 发布门禁：make all → check → preview
 ├── AGENTS.md               # 代码编写要求与提交要求
@@ -232,7 +247,8 @@ Windows 上为 `rust-view.exe`）。
 
 ## 边界与已知取舍（刻意不做）
 
-- **不追求真实 Rust 语义**：没有 `Drop` 顺序、没有 NLL、没有生命周期标注；一切以「一眼看懂」为准。
+- **不追求真实 Rust 语义**：没有 `Drop` 顺序、没有 NLL；生命周期标注**只画不校验**，
+  「返回的 `&'a` 是否真的来自 `'a` 形参」这类问题留给真正的借用检查器。
 - **函数体不展开**：调用点是黑盒，只看签名（入参借用、返回引用）与函数体里的局部变量。
 - **没有结构体字面量**：`struct` 只能声明，字段访问一律判为不支持（宁可不画，也不画错）。
 - 中途失败**绝不会**留下半成品图表：不支持的结构连输出目录都不会创建。

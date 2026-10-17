@@ -59,7 +59,9 @@ void printUsage(const char *argv0) {
         << "  " << argv0 << " <源码.rs> [-o <输出目录>] [--name <基名>]\n\n"
         << "说明：\n"
         << "  解析一份极简 Rust 伪代码，生成 <基名>.svg 与 index.html。\n"
+        << "  支持函数泛型参数表里的生命周期标注（<'a> / &'a T），但只画不校验。\n"
         << "  语法错误：打印行列号并退出（不生成文件）。\n"
+        << "  生命周期标注写错（'a 没声明 / 重复声明）：报错并退出（不生成文件）。\n"
         << "  不支持的结构（如字段级访问 s.a）：报错并退出（不生成文件）。\n"
         << "  借用冲突 / 悬垂指针：生成诊断图（冲突标红），退出码仍为 1。\n";
 }
@@ -193,9 +195,11 @@ int main(int argc, char **argv) {
     if (!result.issues.empty()) {
         std::cerr << "借用分析发现 " << result.issues.size() << " 处问题：\n";
         for (const rustview::Issue &issue : result.issues) {
-            std::cerr << "  · 第 " << issue.line << " 行："
-                      << (issue.unsupported ? "[不支持] " : "[冲突] ")
-                      << issue.message << "\n";
+            const char *kind = issue.unsupported ? "[不支持] "
+                               : issue.lifetime  ? "[生命周期] "
+                               : issue.dangling  ? "[悬垂] "
+                                                 : "[冲突] ";
+            std::cerr << "  · 第 " << issue.line << " 行：" << kind << issue.message << "\n";
         }
     }
 
@@ -203,6 +207,18 @@ int main(int argc, char **argv) {
     if (result.hasUnsupported()) {
         std::cerr << "遇到本工具不支持的结构，已中止渲染（未生成任何文件）。\n";
         return 2;
+    }
+
+    // 生命周期标注本身写错（`'a` 没声明、重复声明）=> 没有可画的东西：
+    // 这类错在**签名处**，图上并没有对应的变量框可以标红，画出来只会是一张
+    // 「到处都正常」的图。所以不写文件，退出码和语法错误一样是 1。
+    bool lifetimeError = false;
+    for (const rustview::Issue &issue : result.issues) {
+        if (issue.lifetime) lifetimeError = true;
+    }
+    if (lifetimeError) {
+        std::cerr << "生命周期标注有误（见上），已中止渲染（未生成任何文件）。\n";
+        return 1;
     }
 
     // ---------- 第 3 步：生成图表（冲突 / 悬垂仍画诊断图，但退出码为 1） ----------

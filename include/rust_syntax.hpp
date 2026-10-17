@@ -63,13 +63,19 @@ int rv_struct(int name, int fields);
 /** @brief 往字段表里加一个 `name: type`。 */
 void rv_struct_field(int list, int name, int type);
 
-/** @brief 造 `fn f(参数) -> 返回类型 { 体 }`；`ret` 可以是 `rv_none()`。 */
-int rv_fn(int name, int params, int ret, int body);
+/** @brief 造 `fn f<生命周期参数>(参数) -> 返回类型 { 体 }`；`lifetimes` / `ret` 可以是 `rv_none()`。 */
+int rv_fn(int name, int lifetimes, int params, int ret, int body);
 /** @brief 往形参表里加一个 `name: type`；`isMut` 表示形参写成 `&mut T`。 */
 void rv_param(int list, int name, int type);
 
 /** @brief 造类型节点：`name` 是类型名，`isRef` / `isMut` 表示 `&T` / `&mut T`。 */
 int rv_type(int name, bool isRef, bool isMut);
+/** @brief 造带生命周期标注的类型 `&'a T` / `&'a mut T`；`lifetime` 是不带撇号的参数句柄。 */
+int rv_lifetime_type(int lifetime, int name, bool isRef, bool isMut);
+/** @brief 造一个生命周期参数 `'a`（`constraint` 是约束的 `'b`，没有就传 `rv_none()`）。 */
+int rv_lifetime_decl(int lifetime, int constraint);
+/** @brief 往泛型参数表里追加一个生命周期参数节点。 */
+void rv_lifetime_param(int list, int decl);
 
 /** @brief 造 `Block`；`tail` 是尾表达式（没有就传 `rv_none()`），它是块的值。 */
 int rv_block(int stmts, int tail);

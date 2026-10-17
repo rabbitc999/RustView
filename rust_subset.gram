@@ -21,8 +21,11 @@
  *   - 块作用域：`{ }` 可嵌套，变量出块即销毁；
  *   - 函数：只解析签名（形参类型、返回类型）与函数体里的局部变量，
  *     调用点按签名黑盒处理；
- *   - 结构体：只支持整体移动 / 整体借用；`s.a` 这种部分移动会被分析器拒绝。
- * 不支持：宏、泛型、trait、async、生命周期标注、`for` / `while` / `if`、
+ *   - 结构体：只支持整体移动 / 整体借用；`s.a` 这种部分移动会被分析器拒绝；
+ *   - 生命周期标注：函数泛型参数表 `<'a, 'b>` 与类型里的 `&'a T` / `&'a mut T`。
+ *     **只解析、只画图、不校验**：不检查「返回的引用是否真的来自 'a」这类
+ *     生命周期合法性（那是借用检查器的活，本工具只做可视化的教学演示）。
+ * 不支持：宏、泛型（`<T>`）、trait、async、`for` / `while` / `if`、
  *         字段级借用、`return`、赋值语句、`match`。
  * ============================================================ */
 
@@ -41,6 +44,17 @@
 %token regex STRING "\"([^\"\\\\]|\\\\.)*\""
 %token regex NUMBER "[0-9]+"
 %identifier "[A-Za-z_][A-Za-z0-9_]*"
+
+/* ---------------- 生命周期：声明与使用两个 Token ----------------
+ * 一个撇号在 Rust 里能起两种作用，文法把两种写法都**逐个登记**成 Token，
+ * 而不是在语义层按字符串切：
+ *   - `'a`   跟在 `&` 后面或出现在泛型参数表里，表示「用到某个生命周期」；
+ *   - `'a`   单独写在泛型参数表里，就是「声明这个名字」。
+ * 这里刻意**不在词法层比较两个 Token 的文本**（生成器的 Token 规则不带比较动作），
+ * 是否「先声明后使用」留给分析器查表判断 —— 报错消息也更像借用检查器说的话。
+ * 词法顺序放在 CONFLICT 之前：撇号规则单调，不会被别的规则抢走。 */
+%token regex LIFETIME "'[A-Za-z_][A-Za-z0-9_]*"
+%token LIFETIME_DECL "'"
 
 /* ---------------- 关键字：一个关键字一个 Token ---------------- */
 %token KW_FN     "fn"
@@ -63,6 +77,8 @@
 %token RPAREN ")"
 %token LBRACE "{"
 %token RBRACE "}"
+%token LANGLE "<"
+%token RANGLE ">"
 
 /* ---------------- 用户代码：建树动作的声明 + Token -> 语义值 ---------------- */
 %code include "include/rust_syntax.hpp"
@@ -101,9 +117,27 @@ field_list := field_list VARIABLE COLON type              { rv_struct_field($1, 
 
 /* ============================ 函数 ============================ */
 /* 只解析签名 + 函数体；函数体用于「局部变量在哪儿声明、返回的引用指向谁」，
- * 调用点不会展开函数体。 */
+ * 调用点不会展开函数体。
+ *
+ * 泛型参数表只开「生命周期」这一支：`fn first<'a, 'b>(...)`。类型参数 <T>、
+ * 约束 <'a: 'b> 都不进文法——写错了就该在语法层被挡住，而不是被分析器猜。
+ * 没有泛型参数表时传 `rv_none()`，两边的签名在语义层是同一个形状。 */
 fn_def := KW_FN VARIABLE LPAREN param_list RPAREN fn_return block
-    { $$ = rv_fn($2, $4, $6, $7); }
+    { $$ = rv_fn($2, rv_none(), $4, $6, $7); }
+fn_def := KW_FN VARIABLE lifetime_params LPAREN param_list RPAREN fn_return block
+    { $$ = rv_fn($2, $3, $5, $7, $8); }
+
+lifetime_params := LANGLE lifetime_param_list RANGLE  { $$ = $2; }
+
+lifetime_param_list := lifetime_param                      { $$ = rv_list(); rv_lifetime_param($$, $1); }
+lifetime_param_list := lifetime_param_list COMMA lifetime_param
+    { rv_lifetime_param($1, $3); $$ = $1; }
+/* 允许尾随逗号（`<'a,>`），和 Rust 一致。 */
+lifetime_param_list := lifetime_param_list COMMA           { $$ = $1; }
+
+/* 一个生命周期参数：`'a` 或 `'a: 'b`（带约束）。名称由分析器去重、查重。 */
+lifetime_param := LIFETIME            { $$ = rv_lifetime_decl($1, rv_none()); }
+lifetime_param := LIFETIME COLON LIFETIME { $$ = rv_lifetime_decl($1, $3); }
 
 fn_return := %empty                 { $$ = rv_none(); }
 fn_return := ARROW type             { $$ = $2; }
@@ -118,6 +152,14 @@ param_list := param_list VARIABLE COLON type          { rv_param($1, $2, $4); $$
 type := type_name                   { $$ = rv_type($1, 0, 0); }
 type := AMP type_name               { $$ = rv_type($2, 1, 0); }
 type := AMP KW_MUT type_name        { $$ = rv_type($3, 1, 1); }
+
+/* 带生命周期标注的引用：`&'a T` / `&'a mut T` / `&mut 'a T`。
+ * 最后一条写成 `&mut 'a T`，是因为 `'a` 才是真正的生命周期标识符，
+ * `mut` 只是可变标记——两种写法本工具都认，图上也都会标出 `'a`。
+ * 注意动作参数顺序：`rv_lifetime_type(生命周期, 类型名, isRef, isMut)`。 */
+type := AMP LIFETIME type_name           { $$ = rv_lifetime_type($2, $3, 1, 0); }
+type := AMP LIFETIME KW_MUT type_name    { $$ = rv_lifetime_type($2, $4, 1, 1); }
+type := AMP KW_MUT LIFETIME type_name    { $$ = rv_lifetime_type($3, $4, 1, 1); }
 
 type_name := VARIABLE               { $$ = $1; }
 type_name := TY_INT                 { $$ = $1; }
@@ -149,7 +191,8 @@ print_stmt := KW_PRINT LPAREN expr RPAREN SEMI        { $$ = rv_print($3); }
 
 /* ============================ 表达式 ============================ */
 /* 借用只允许 `&变量` / `&mut 变量`：借用是「整体借用」，
- * 所以 `&s.field`、`&f()`、`&*p` 一律不合法（文法直接不认）。 */
+ * 所以 `&s.field`、`&f()`、`&*p` 一律不合法（文法直接不认）。
+ * 表达式上**不**接受生命周期标注（`&'a x` 在 Rust 里也不常见，本工具不演示）。 */
 expr := NUMBER                      { $$ = rv_int_lit($1); }
 expr := STRING                      { $$ = rv_str_lit($1); }
 expr := VARIABLE                    { $$ = rv_var($1); }

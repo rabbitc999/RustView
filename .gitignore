@@ -22,3 +22,6 @@ NUL
 .idea/
 .DS_Store
 Thumbs.db
+
+# 改动前的增量备份（AGENTS.md 约定）。
+Backup/

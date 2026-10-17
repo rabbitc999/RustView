@@ -160,10 +160,11 @@ void rv_struct_field(int list, int name, int type) {
     if (listNode) listNode->fields.push_back(take(handle));
 }
 
-int rv_fn(int name, int params, int ret, int body) {
+int rv_fn(int name, int lifetimes, int params, int ret, int body) {
     const int handle = make(NodeKind::FnDecl, lineOf(name));
     Node *node = peek(handle);
     node->name = rv_text(name);
+    node->lifetimes = takeList(lifetimes);  // 没有泛型参数表时 take(-1) 得到空表
     node->params = takeList(params);
     node->ret = take(ret);
     node->body = take(body);
@@ -187,6 +188,26 @@ int rv_type(int name, bool isRef, bool isMut) {
     node->isRef = isRef;
     node->isMut = isMut;
     return handle;
+}
+
+int rv_lifetime_type(int lifetime, int name, bool isRef, bool isMut) {
+    const int handle = rv_type(name, isRef, isMut);
+    Node *node = peek(handle);
+    // LIFETIME 这个 Token 的原文本身就带撇号（`'a`），这里直接存，画图和报错时不必再补。
+    if (node) node->lifetime = rv_text(lifetime);
+    return handle;
+}
+
+int rv_lifetime_decl(int lifetime, int constraint) {
+    const int handle = make(NodeKind::LifetimeDecl, lineOf(lifetime));
+    Node *node = peek(handle);
+    node->name = rv_text(lifetime);
+    node->base = take(constraint);  // 有约束 `'a: 'b` 时，存的是 `'b` 这个 VarRef 节点
+    return handle;
+}
+
+void rv_lifetime_param(int list, int decl) {
+    rv_list_push(list, decl);
 }
 
 int rv_block(int stmts, int tail) {

@@ -38,9 +38,11 @@ enum class NodeKind {
     Program,     ///< 整个程序（顶层项在 `items` 里）
     StructDecl,  ///< `struct S { a: int, b: String }`（字段在 `fields` 里）
     StructField, ///< 结构体字段：`name` + `type`
-    FnDecl,      ///< `fn f(...) -> T { ... }`：`name` + `params` + `ret` + `body`
+    FnDecl,      ///< `fn f<'a>(...) -> T { ... }`：`name` + `lifetimes` + `params` + `ret` + `body`
     Param,       ///< 形参：`name` + `type`（`isMut` 表示形参本身是 `&mut`）
-    Type,        ///< 类型：`name` 是类型名，`isRef` / `isMut` 表示 `&T` / `&mut T`
+    Type,        ///< 类型：`name` 是类型名，`isRef` / `isMut` 表示 `&T` / `&mut T`，
+                 ///< `lifetime` 是标注的 `'a`（没标注就为空）
+    LifetimeDecl,///< 泛型参数表里的一个生命周期：`name` 是 `'a`，`base` 是约束 `'b`（可空）
     Block,       ///< `{ ... }`：语句在 `stmts` 里，尾表达式在 `tail` 里（可为空）
     Let,         ///< `let [mut] name = init;`：`isMut` + `name` + `init`
     Print,       ///< `print(init);`
@@ -65,23 +67,25 @@ using NodePtr = std::unique_ptr<Node>;
  */
 struct Node {
     NodeKind kind = NodeKind::Tok;  ///< 节点种类，决定下面哪些字段有意义
-    std::string name;               ///< 标识符 / 字面量原文 / 函数名 / 字段名 / 类型名
+    std::string name;               ///< 标识符 / 字面量原文 / 函数名 / 字段名 / 类型名 / 生命周期名
     bool isMut = false;             ///< `let mut` / `&mut` / `&mut T` 的「可变」标记
     bool isRef = false;             ///< 类型节点：是否为引用 `&T` / `&mut T`
     int line = 1;                   ///< 起始行号（1 起），报错和画图都用它
     double number = 0.0;            ///< 词法单元占位节点上的数值（整数字面量用）
+    std::string lifetime;           ///< 类型节点：标注的生命周期名（`'a`）；没标注为空
 
     std::vector<NodePtr> items;   ///< `List` 的元素 / `Program` 的顶层项
     std::vector<NodePtr> stmts;   ///< `Block` 的语句序列
     std::vector<NodePtr> params;  ///< `FnDecl` 的形参（`Param`）
     std::vector<NodePtr> fields;  ///< `StructDecl` 的字段（`StructField`）
     std::vector<NodePtr> args;    ///< `Call` 的实参表达式
+    std::vector<NodePtr> lifetimes; ///< `FnDecl` 的泛型参数表（`LifetimeDecl`，可为空）
 
     NodePtr type;   ///< `Param` / `StructField` 的类型
     NodePtr ret;    ///< `FnDecl` 的返回类型（写 `-> T` 才有，否则为空）
     NodePtr init;   ///< `Let` 的初值 / `Print` 的对象 / `ExprStmt` 的表达式
     NodePtr tail;   ///< `Block` 的尾表达式（`{ ...; expr }` 里的 `expr`，可为空）
-    NodePtr base;   ///< `Borrow` / `FieldAccess` 的目标（`VarRef` 或任意表达式）
+    NodePtr base;   ///< `Borrow` / `FieldAccess` 的目标 / `LifetimeDecl` 的约束生命周期
     NodePtr body;   ///< `FnDecl` 的函数体（`Block`）
 };
 
@@ -97,5 +101,35 @@ inline const std::string &nodeName(const Node *node) {
 
 /** @brief 类型名是否为「值语义」——本工具只把 `int` 当作拷贝语义。 */
 inline bool isValueType(const std::string &typeName) { return typeName == "int"; }
+
+/**
+ * @brief 把类型还原成源码里的写法：`String` + isRef/isMut/生命周期 -> `&'a mut String`。
+ * @param base 类型名；空串表示未知，输出 `?`。
+ * @param isRef 是否为引用类型。
+ * @param isMut 是否为可变引用（仅在 `isRef` 为真时有意义）。
+ * @param lifetime 标注的生命周期名（如 `'a`）；空串表示没标注。
+ * @return 用于报错 / 画图 / 调用栈签名的类型拼写。
+ *
+ * `mut` 只属于引用：非引用类型即使 `isMut` 为真也不会写出 `mut`。
+ * 生命周期写在 `&` 后面、`mut` 前面，和源码里的顺序一致。
+ */
+inline std::string typeSpelling(const std::string &base, bool isRef, bool isMut,
+                                const std::string &lifetime = std::string()) {
+    if (!isRef) return base.empty() ? "?" : base;
+    std::string out = "&";
+    if (!lifetime.empty()) out += lifetime + " ";
+    if (isMut) out += "mut ";
+    return out + (base.empty() ? "?" : base);
+}
+
+/**
+ * @brief 读类型节点上的生命周期名，空指针安全。
+ * @param type 类型节点，可为 `nullptr`。
+ * @return 生命周期名（`'a`）；没标注或指针为空时返回空串。
+ */
+inline const std::string &lifetimeOf(const Node *type) {
+    static const std::string kEmpty;
+    return type ? type->lifetime : kEmpty;
+}
 
 } // namespace rustview

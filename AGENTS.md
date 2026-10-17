@@ -10,7 +10,7 @@
 硬性要求：
 
 1. **必须写完整的文法文件**：`rust_subset.gram` 是这门极简 Rust 的**权威语法定义**
-   （`cpp17` 后端 + `ielr` 模式，20 个 Token、43 条产生式、76 个状态、0 冲突）。
+   （`cpp17` 后端 + `ielr` 模式，24 个 Token、53 条产生式、97 个状态、0 冲突）。
    产生式要覆盖完整语法结构，关键字用 `%token NAME "字面量"` **逐个登记**；语义动作
    只调用 `%code`（`include/rust_syntax.hpp`）里声明的 `rv_*` 函数。
 2. **`.gram` 不能当"词法的提取器"**：禁止用一个大 `KW` / 一个万能 Token / 一条
@@ -26,10 +26,13 @@
    都在这里（已 gitignore）；源码目录保持干净。
 6. **完整文档注释**：头文件与 `.cpp` 的公开类型/函数都要中文 doc comment
    （`@brief` / `@param` / `@return`），沿用仓库风格。
-7. **验收靠断言，不靠肉眼**：`make check` 逐条断言五组样例（正常能出图、三种借用问题
-   必须非 0 退出、不支持的结构**一个文件都不写**）。加样例就加断言。
+7. **验收靠断言，不靠肉眼**：`make check` 逐条断言六组样例（两组正常能出图、三种借用问题
+   必须非 0 退出、不支持的结构**一个文件都不写**；生命周期样例还要断言图里画出了
+   生命周期栏）。加样例就加断言。
 8. **1.0 功能冻结的契约**：语言边界、借用分析规则、退出码约定与图表版面视为稳定契约，
-   除明确 BUG 外不改动；改动要同步 [`README.md`](README.md) 与 [`CHANGELOG.md`](CHANGELOG.md)。
+   除明确 BUG 外不改动（1.1 按需求解冻过一次，只加了生命周期标注的「只画不校验」，
+   见 [`CHANGELOG.md`](CHANGELOG.md)）；改动要同步 [`README.md`](README.md) 与
+   [`CHANGELOG.md`](CHANGELOG.md)。
 9. `doc/` 放效果图与演示页（`make preview` 重生成）；最后 `git add -A` → commit →
    `git push origin master`（远端 <https://gitee.com/rabbitc999/rust-view.git>）。
 

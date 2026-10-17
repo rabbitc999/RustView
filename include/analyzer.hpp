@@ -49,6 +49,7 @@ struct VarInfo {
     int id = -1;                 ///< 变量 id（= 在 `AnalysisResult::vars` 里的下标）
     std::string name;            ///< 源码里的名字
     std::string typeName;        ///< 类型名（引用变量存的是被指向的类型名，如 `String`）
+    std::string lifetime;        ///< 引用绑定上标注的生命周期（`'a`）；没标注为空
     bool isRef = false;          ///< 这个绑定本身是不是引用（`&T` / `&mut T` / 返回引用）
     bool isMut = false;          ///< `let mut` 或 `&mut`
     bool valueSemantics = false; ///< 值语义（`int`）：赋值是拷贝；否则赋值是 Move
@@ -93,11 +94,28 @@ struct ScopeInfo {
 /** @brief 一次函数调用（画在中间的「函数调用栈」一栏）。 */
 struct CallInfo {
     std::string fn;                          ///< 被调函数名
-    std::string signature;                   ///< 还原出的签名，如 `borrow_and_return(&String) -> &String`
+    std::string signature;                   ///< 还原出的签名，如 `borrow_and_return(&'a String) -> &'a String`
     bool returnsRef = false;                 ///< 返回值是不是引用
     bool dangling = false;                   ///< 这次调用是否检出悬垂
     int line = 1;                            ///< 调用点行号
     std::vector<std::string> args;           ///< 实参的简短描述
+    std::string lifetime;                    ///< 泛型参数表原文（如 `<'a>`）；没有标注为空
+    std::string returnLifetime;              ///< 返回类型上标注的生命周期（`'a`）；没有为空
+};
+
+/**
+ * @brief 一条生命周期标注的观察记录（**不是错误**，只是画在图上给人看的注解）。
+ *
+ * 本工具**不校验**生命周期合法性（那是借用检查器的活）：这里只记录「函数声明的
+ * 生命周期参数与调用的实参怎么对上」。`note` 是给读者的一句话结论，`warning` 为真时
+ * 用警示色画，但**不影响退出码，也不切到诊断图**——图和 1.0 一样照常生成。
+ */
+struct LifetimeNote {
+    std::string fn;   ///< 被调函数名（记录属于某次调用）
+    int line = 1;     ///< 调用点行号
+    std::string note; ///< 一句话结论
+    std::string declLabel; ///< 函数声明原文，如 `fn first<'a>`（画图时的标题）
+    bool warning = false; ///< 是否用警示色（仅影响配色）
 };
 
 /**
@@ -115,6 +133,7 @@ struct Issue {
     int line = 1;               ///< 源码行号
     bool unsupported = false;   ///< 不支持的结构（必须中止渲染）
     bool dangling = false;      ///< 悬垂指针（画断线箭头）
+    bool lifetime = false;      ///< 生命周期标注本身的错（写错名字这类，不是借用检查失败）
     int focus = -1;             ///< 要标红的变量 id
     int focus2 = -1;            ///< 第二个要标红的变量 id（借用冲突的两方）
 };
@@ -133,10 +152,14 @@ struct AnalysisResult {
     int danglingLine = 0;             ///< 检出悬垂时：调用点行号
     int danglingVar = -1;             ///< 检出悬垂时：接收悬垂引用的变量 id
 
+    std::vector<LifetimeNote> lifetimeNotes; ///< 生命周期标注的观察记录（只画图，不影响退出码）
+
     /** @brief 有没有诊断。 */
     bool ok() const { return issues.empty(); }
     /** @brief 有没有「不支持的结构」类诊断（有就必须中止渲染）。 */
     bool hasUnsupported() const;
+    /** @brief 整个程序里有没有出现过生命周期标注（决定图上要不要多一个生命周期栏）。 */
+    bool hasLifetimes() const;
 };
 
 /**
@@ -175,9 +198,13 @@ private:
         std::string returnType;          ///< 返回类型名（`int` / `String` / 结构体名）
         bool returnsRef = false;         ///< 返回 `&T`
         bool returnsMutRef = false;      ///< 返回 `&mut T`
+        std::string returnLifetime;      ///< 返回类型上标注的生命周期（`'a`）；没有为空
+        std::vector<std::string> lifetimes; ///< 泛型参数表里声明的生命周期（`'a`…）
+        std::string lifetimeList;        ///< 泛型参数表原文（`<'a>` / `<'a, 'b>`）；没有为空
         std::vector<std::string> paramTypes; ///< 形参类型名
         std::vector<bool> paramIsRef;    ///< 形参是不是引用
         std::vector<bool> paramIsMutRef; ///< 形参是不是 `&mut`
+        std::vector<std::string> paramLifetimes; ///< 形参类型上标注的生命周期（没有为空串）
         bool bodyReturnsLocal = false;   ///< 函数体把**局部变量**的引用返回出去了
         std::string localName;           ///< 上面那个局部变量的名字
     };
@@ -190,6 +217,7 @@ private:
         std::string typeName;        ///< 类型名
         bool mutRef = false;         ///< 引用是不是 `&mut`
         bool dangling = false;       ///< 这个引用是悬垂的
+        std::string lifetime;        ///< 引用的生命周期标注（`&'a x` 才有；没标注为空）
         std::string note;            ///< 「新建的堆对象」「悬垂：指向已销毁的 local」这类说明
     };
 
@@ -202,12 +230,14 @@ private:
     // ---- 声明收集 ----
     void collectDeclarations();
     static void scanReturnExpr(const Node &fnNode, FnSig &sig, std::vector<std::string> &localNames);
+    void checkLifetimeDecls(const Node &fnNode, FnSig &sig);
 
     // ---- 作用域栈 ----
     int pushScope(const std::string &label, int line, bool fnScope);
     void popScope();
     int declareVar(const std::string &name, const std::string &typeName, bool isRef,
-                   bool isMut, int line, bool fnParam);
+                   bool isMut, int line, bool fnParam,
+                   const std::string &lifetime = std::string());
     int lookup(const std::string &name) const;
 
     // ---- 借用状态表 ----
@@ -226,13 +256,16 @@ private:
 
     // ---- 诊断 ----
     void addIssue(const std::string &message, int line, bool unsupported, bool dangling,
-                  int focus, int focus2);
+                  int focus, int focus2, bool lifetime = false);
+    void addLifetimeNote(const std::string &fn, int line, const std::string &note,
+                         bool warning = false);
 
     const Node &program_;              ///< 语法树根
     AnalysisResult result_;            ///< 分析产物
     std::map<std::string, FnSig> sigs_;      ///< 函数签名表（先全部登记，再分析函数体）
     std::map<std::string, const Node *> structs_; ///< 结构体表
     std::vector<Frame> frames_;        ///< 作用域栈
+    FnSig *currentFn_ = nullptr;       ///< 正在分析的函数签名（生命周期参数表用它查重）
     int conflictPartner_ = -1;         ///< 最近一次借用冲突里「已经存在的那个借用者」（画图标红用）
 };
 

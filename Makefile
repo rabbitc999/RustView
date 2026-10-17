@@ -116,8 +116,9 @@ $(BUILD)/obj/gen/%.o: $(GEN)/%.cpp
 $(BIN): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(OBJS) -o $@
 
-# 五组验收样例：正常样例能出图（退出 0）；冲突 / 悬垂 / move 后使用样例必须给出
-# 非 0 退出码；不支持的结构样例必须报错且**一个文件都不写**。
+# 六组验收样例：正常样例能出图（退出 0）；冲突 / 悬垂 / move 后使用样例必须给出
+# 非 0 退出码；不支持的结构样例必须报错且**一个文件都不写**；生命周期样例必须
+# 出图且退出 0，并且图里真的画出了生命周期栏（断言第四栏标题出现在 SVG 里）。
 # （下面逐条断言的注释见每个 echo。）
 # 冲突与悬垂**仍会生成诊断图**，所以这里断言的是「退出码」，不是「有没有文件」。
 #
@@ -125,34 +126,40 @@ $(BIN): $(OBJS)
 # 参数按 ANSI(CP936) 转一遍，中文消息里奇数个字节会把紧邻的转义引号吃掉，整条命令被
 # 拆成几段，报 `unexpected EOF while looking for matching '"'`。中文注释不受影响。
 # 各条断言的中文含义：
-#   1/5 正常样例：examples/borrow_ok.rs  —— 必须出图、退出 0
-#   2/5 借用冲突：examples/borrow_conflict.rs —— 必须非 0 退出（诊断图已生成）
-#   3/5 悬垂指针：examples/dangling.rs —— 必须非 0 退出（诊断图已生成）
-#   4/5 使用已 move 的变量：examples/use_after_move.rs —— 必须非 0 退出（诊断图已生成）
-#   5/5 不支持的结构：examples/unsupported_field.rs —— 必须非 0 退出，且一个文件都不写
+#   1/6 正常样例：examples/borrow_ok.rs  —— 必须出图、退出 0
+#   2/6 借用冲突：examples/borrow_conflict.rs —— 必须非 0 退出（诊断图已生成）
+#   3/6 悬垂指针：examples/dangling.rs —— 必须非 0 退出（诊断图已生成）
+#   4/6 使用已 move 的变量：examples/use_after_move.rs —— 必须非 0 退出（诊断图已生成）
+#   5/6 不支持的结构：examples/unsupported_field.rs —— 必须非 0 退出，且一个文件都不写
+#   6/6 生命周期标注：examples/lifetime.rs —— 必须出图、退出 0，且画出生命周期栏
 check: $(BIN)
 	@mkdir -p $(BUILD)/out
-	@echo "== 1/5 borrow_ok.rs (expect: render ok, exit 0) =="
+	@echo "== 1/6 borrow_ok.rs (expect: render ok, exit 0) =="
 	$(BIN) $(CURDIR)/examples/borrow_ok.rs -o $(BUILD)/out
-	@echo "== 2/5 borrow_conflict.rs (expect: non-zero exit) =="
+	@echo "== 2/6 borrow_conflict.rs (expect: non-zero exit) =="
 	@if $(BIN) $(CURDIR)/examples/borrow_conflict.rs -o $(BUILD)/out; then \
 		echo "!! expected borrow-conflict error, but exit code was 0"; exit 1; \
 	else echo "errored as expected (diagnostic figure written)"; fi
-	@echo "== 3/5 dangling.rs (expect: non-zero exit) =="
+	@echo "== 3/6 dangling.rs (expect: non-zero exit) =="
 	@if $(BIN) $(CURDIR)/examples/dangling.rs -o $(BUILD)/out; then \
 		echo "!! expected dangling-reference error, but exit code was 0"; exit 1; \
 	else echo "errored as expected (diagnostic figure written)"; fi
-	@echo "== 4/5 use_after_move.rs (expect: non-zero exit) =="
+	@echo "== 4/6 use_after_move.rs (expect: non-zero exit) =="
 	@if $(BIN) $(CURDIR)/examples/use_after_move.rs -o $(BUILD)/out; then \
 		echo "!! expected use-after-move error, but exit code was 0"; exit 1; \
 	else echo "errored as expected (diagnostic figure written)"; fi
-	@echo "== 5/5 unsupported_field.rs (expect: non-zero exit, write nothing) =="
+	@echo "== 5/6 unsupported_field.rs (expect: non-zero exit, write nothing) =="
 	@if $(BIN) $(CURDIR)/examples/unsupported_field.rs -o $(BUILD)/unsupported_out; then \
 		echo "!! expected unsupported-structure error, but exit code was 0"; exit 1; \
 	fi
 	@test ! -e $(BUILD)/unsupported_out/unsupported_field.svg \
 		|| { echo "!! unsupported structure still wrote a figure"; exit 1; }
 	@echo "render aborted as expected, no figure written"
+	@echo "== 6/6 lifetime.rs (expect: render ok, exit 0, lifetime panel drawn) =="
+	$(BIN) $(CURDIR)/examples/lifetime.rs -o $(BUILD)/out
+	@grep -q "lifetime-panel" $(BUILD)/out/lifetime.svg \
+		|| { echo "!! lifetime panel missing in generated figure"; exit 1; }
+	@echo "lifetime panel rendered as expected"
 	@echo "check passed, outputs in $(BUILD)/out"
 
 # 重新生成 doc/ 里的效果图与演示页（README 用）。

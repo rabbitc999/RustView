@@ -57,10 +57,18 @@ constexpr const char *kCallFill = "#f7f9fc";
 constexpr const char *kCallEdge = "#c9dcf0";
 constexpr const char *kScope = "#fbfcfe";
 constexpr const char *kLane = "#8ea2bb";
+/* 生命周期栏（第四栏）：青色系，和借用边的蓝 / 变量框的紫都区分得开。 */
+constexpr const char *kLifeFill = "#eaf7f8";
+constexpr const char *kLifeEdge = "#5fabae";
+constexpr const char *kLifeText = "#146b6e";
+constexpr const char *kWarnFill = "#fff8e6";
+constexpr const char *kWarnEdge = "#d9a441";
+constexpr const char *kWarnText = "#8a5a00";
 
-/** @brief 版本号 + 维护状态。1.0 起功能冻结，只修明确 BUG；显示在图表右下角与 HTML 页脚。 */
-constexpr const char *kVersion = "1.0";
-constexpr const char *kVersionNote = "RustView 1.0 · 功能冻结（除明确 BUG 外不再改动）";
+/** @brief 版本号 + 维护状态。显示在图表右下角与 HTML 页脚。 */
+constexpr const char *kVersion = "1.1";
+constexpr const char *kVersionNote =
+    "RustView 1.1 · 生命周期标注只画不校验（1.0 版面契约保持不变）";
 
 /** @brief SVG 文本转义：`&` `<` `>` 必须转义，否则中文没问题但这几个符号会炸。 */
 std::string xmlEscape(const std::string &text) {
@@ -86,12 +94,14 @@ std::string fmt(double value) {
     return out.str();
 }
 
-/** @brief `<rect>`。 */
+/** @brief `<rect>`；`id` 非空时给元素加 id（make check 的 grep 锚点用）。 */
 std::string rect(double x, double y, double w, double h, const std::string &fill,
                  const std::string &edge = "", double radius = 6, double strokeWidth = 1.0,
-                 const std::string &dash = "") {
+                 const std::string &dash = "", const std::string &id = "") {
     std::ostringstream out;
-    out << "<rect x=\"" << fmt(x) << "\" y=\"" << fmt(y) << "\" width=\"" << fmt(w)
+    out << "<rect";
+    if (!id.empty()) out << " id=\"" << id << "\"";
+    out << " x=\"" << fmt(x) << "\" y=\"" << fmt(y) << "\" width=\"" << fmt(w)
         << "\" height=\"" << fmt(h) << "\" rx=\"" << fmt(radius) << "\" fill=\"" << fill << "\"";
     if (!edge.empty()) out << " stroke=\"" << edge << "\" stroke-width=\"" << fmt(strokeWidth) << "\"";
     if (!dash.empty()) out << " stroke-dasharray=\"" << dash << "\"";
@@ -143,19 +153,24 @@ Visualizer::Visualizer(const AnalysisResult &result, VisualOptions options)
 
 std::string Visualizer::statusLine() const {
     if (result_.ok()) {
-        return "分析通过 · " + std::to_string(result_.vars.size()) + " 个绑定、" +
-               std::to_string(result_.borrows.size()) + " 条借用、" +
-               std::to_string(result_.moves.size()) + " 次所有权转移";
+        std::string out = "分析通过 · " + std::to_string(result_.vars.size()) + " 个绑定、" +
+                          std::to_string(result_.borrows.size()) + " 条借用、" +
+                          std::to_string(result_.moves.size()) + " 次所有权转移";
+        if (result_.hasLifetimes()) out += "、" + std::to_string(result_.calls.size()) +
+                                           " 次调用带生命周期标注";
+        return out;
     }
-    std::size_t conflict = 0, dangling = 0, unsupported = 0;
+    std::size_t conflict = 0, dangling = 0, unsupported = 0, lifetime = 0;
     for (const Issue &issue : result_.issues) {
         if (issue.unsupported) ++unsupported;
+        else if (issue.lifetime) ++lifetime;
         else if (issue.dangling) ++dangling;
         else ++conflict;
     }
     std::string out = "分析失败";
     if (conflict) out += " · " + std::to_string(conflict) + " 处借用冲突";
     if (dangling) out += " · " + std::to_string(dangling) + " 处悬垂指针";
+    if (lifetime) out += " · " + std::to_string(lifetime) + " 处生命周期标注错误";
     if (unsupported) out += " · " + std::to_string(unsupported) + " 处不支持的结构";
     return out;
 }
@@ -208,10 +223,12 @@ BoxStyle styleOf(const VarInfo &var, bool destroyed, bool conflict, bool danglin
 }
 
 /** @brief 变量框里的第二行（类型 / 状态 / 指向 / 堆对象）。
- *  @param destroyed 见 `styleOf()`：只有内层块退出导致的销毁才写成「已销毁」。 */
+ *  @param destroyed 见 `styleOf()`：只有内层块退出导致的销毁才写成「已销毁」。
+ *  带生命周期标注的引用把标注一起写出来（`&'a String · Initialized`），
+ *  形状和源码里的 `&'a String` 一致。 */
 std::string metaOf(const VarInfo &var, bool destroyed) {
     std::string meta = var.typeName.empty() ? "?" : var.typeName;
-    if (var.isRef) meta = "&" + meta;
+    if (var.isRef) meta = "&" + (var.lifetime.empty() ? "" : var.lifetime + " ") + meta;
     if (destroyed) return meta + " · 已销毁";
     if (var.state == VarState::Moved) return meta + " · 已移动";
     if (var.state == VarState::BorrowedMutable) return meta + " · 可变借出";
@@ -223,16 +240,45 @@ std::string metaOf(const VarInfo &var, bool destroyed) {
 } // namespace
 
 std::string Visualizer::renderSvg() const {
-    /* ---------------- 布局常量 ---------------- */
+    /* ---------------- 布局常量 ----------------
+     * 出现生命周期标注时把画布加宽 440，多出第四栏（右边缘仍留 40 的边距），
+     * 前三栏的坐标一动不动 —— 冻结的版面照旧，只是右边多一列注解。 */
+    const bool showLife = result_.hasLifetimes();
+    const double lifeW = showLife ? 440 : 0;
     const double stackX = 40, stackW = 380;
     const double callX = 470, callW = 340;
     const double heapX = 850, heapW = 430;
-    const double canvasW = 1320;
+    const double lifeX = 1320;
+    const double canvasW = 1320 + lifeW;
     const double panelTop = 92;
     const double bodyTop = 132;
     const double rowH = 48;
     const double boxH = 38;
     const double laneBase = stackX + stackW + 6;
+
+    /* ---------------- 生命周期栏的行分配 ----------------
+     * 上半截：声明了生命周期参数的函数，一个函数一行（`fn first<'a>`）。
+     * 下半截：带标注的调用点，一次调用一行（`'a` 绑定到哪个实参）。
+     * 两截之间留一行画分隔线，行号从 0 起（和左边三栏同一套坐标系）。 */
+    std::vector<std::string> lifeDecls;
+    for (const CallInfo &call : result_.calls) {
+        if (call.lifetime.empty()) continue;
+        const std::string label = "fn " + call.fn + call.lifetime;
+        if (std::find(lifeDecls.begin(), lifeDecls.end(), label) == lifeDecls.end()) {
+            lifeDecls.push_back(label);
+        }
+    }
+    std::vector<LifetimeNote> lifeNotes;
+    for (const LifetimeNote &note : result_.lifetimeNotes) {
+        const bool dup = std::any_of(lifeNotes.begin(), lifeNotes.end(),
+                                     [&](const LifetimeNote &other) {
+                                         return other.fn == note.fn && other.line == note.line;
+                                     });
+        if (!dup) lifeNotes.push_back(note);
+    }
+    const int lifeDeclRows = static_cast<int>(lifeDecls.size());
+    const int lifeNoteRows = static_cast<int>(lifeNotes.size());
+    const int lifeTotalRows = showLife ? lifeDeclRows + (lifeNoteRows ? lifeNoteRows + 1 : 0) : 0;
 
     /* ---------------- 只画入口函数 `main` 的作用域 ----------------
      * 别的函数（get_string / borrow_and_return / dangling）的形参与局部变量
@@ -348,9 +394,30 @@ std::string Visualizer::renderSvg() const {
         box.h = boxH;
     }
 
+    /* ---------------- 调用栈栏的行游标 ----------------
+     * 普通调用卡高 `boxH`、占一个 `rowH` 行距（与 1.0 一致）；
+     * 带生命周期标注的卡要放四行字（名字 / 签名 / 实参 / 绑定说明），
+     * 卡高 `lifeCardH`、占 `lifeCardRows` 行距——必须**各自用游标累加**，
+     * 不能共用一个行号，否则高卡会压到下面那张卡上（那正是之前的比例问题）。 */
+    const double lifeCardH = 66;
+    const double lifeCardGap = 8;
+    const int lifeCardRowSpan = static_cast<int>((lifeCardH + lifeCardGap) / rowH) + 1;
+    std::vector<double> callY(result_.calls.size(), 0.0);
+    std::vector<double> callH(result_.calls.size(), boxH);
+    int callRows = 0;
+    for (std::size_t i = 0; i < result_.calls.size(); ++i) {
+        const bool tall = !result_.calls[i].lifetime.empty();
+        const double h = tall ? lifeCardH : boxH;
+        callH[i] = h;
+        // 卡片在行带里垂直居中；高卡的行带足够高，不会越界。
+        callY[i] = bodyTop + static_cast<double>(callRows) * rowH +
+                   (tall ? 4.0 : (rowH - boxH) / 2);
+        callRows += tall ? lifeCardRowSpan : 1;
+    }
+
     /* ---------------- 画布高度 ---------------- */
-    const int contentRows = std::max<int>({rows, static_cast<int>(result_.calls.size()),
-                                           static_cast<int>(heapVars.size()), 1});
+    const int contentRows = std::max<int>({rows, callRows, static_cast<int>(heapVars.size()),
+                                           lifeTotalRows, 1});
     const double bodyBottom = bodyTop + contentRows * rowH + 16;
     const int issueCount = static_cast<int>(result_.issues.size());
     const bool showDangling = !result_.danglingLocal.empty();
@@ -400,6 +467,14 @@ std::string Visualizer::renderSvg() const {
     svg << text(stackX + 14, panelTop + 26, "栈 · 作用域", 15, kPanelTitle, true);
     svg << text(callX + 14, panelTop + 26, "函数调用栈", 15, kPanelTitle, true);
     svg << text(heapX + 14, panelTop + 26, "堆对象", 15, kPanelTitle, true);
+    if (showLife) {
+        // "lifetime-panel" 是给 make check 的 grep 断言用的锚点（id 对渲染无影响）。
+        svg << rect(lifeX, panelTop, lifeW, bodyBottom - panelTop, kPanel, kPanelEdge, 12,
+                    1.0, "", "lifetime-panel");
+        svg << text(lifeX + 14, panelTop + 26, "生命周期标注", 15, kPanelTitle, true);
+        svg << text(lifeX + lifeW - 14, panelTop + 26, "只解释标注，不做合法性校验", 10, kNote,
+                    false, "end");
+    }
 
     /* ---- 作用域矩形（先画外层的，再画里层变量，保证变量压在框上面）---- */
     for (std::size_t s = 0; s < result_.scopes.size(); ++s) {
@@ -513,22 +588,80 @@ std::string Visualizer::renderSvg() const {
     /* ---- 函数调用栈 ---- */
     for (std::size_t i = 0; i < result_.calls.size(); ++i) {
         const CallInfo &call = result_.calls[i];
-        const double y = bodyTop + static_cast<double>(i) * rowH + (rowH - boxH) / 2;
+        const double y = callY[i];
+        std::string args;
+        for (std::size_t a = 0; a < call.args.size(); ++a) {
+            if (a) args += ", ";
+            args += call.args[a];
+        }
+        if (!call.lifetime.empty()) {
+            // 带生命周期标注的调用：卡片高 `lifeCardH`（四行字：名字 / 签名 / 实参 / 绑定说明），
+            // 青色边框，让读者把「这次调用的 'a 绑给了谁」和右边第四栏对上。
+            const LifetimeNote *note = nullptr;
+            for (const LifetimeNote &candidate : lifeNotes) {
+                if (candidate.fn == call.fn && candidate.line == call.line) note = &candidate;
+            }
+            const bool warn = note && note->warning;
+            const std::string edge = warn ? kWarnEdge : call.dangling ? kDanger : kLifeEdge;
+            const std::string fill = warn ? kWarnFill : call.dangling ? kDangerFill : kLifeFill;
+            svg << rect(callX + 12, y, callW - 24, callH[i], fill, edge, 7,
+                        call.dangling || warn ? 2.0 : 1.2);
+            svg << text(callX + 24, y + 16, call.fn + "()", 13,
+                        call.dangling ? kDanger : kLifeText, true);
+            // 签名可能很长（`longer<'a, 'b: 'a>(&'a String, &'b String) -> &'a String`），
+            // 字号压到 9.5，正好落在卡片内宽里，不会被裁掉。
+            svg << text(callX + 24, y + 31, call.signature, 9.5, kNote);
+            if (!call.args.empty()) svg << text(callX + 24, y + 46, "实参：" + args, 10, kNote);
+            if (note) {
+                svg << text(callX + 24, y + 60, note->note, 9.5, warn ? kWarnText : kLifeText);
+            }
+            if (call.dangling) {
+                svg << text(callX + callW - 24, y + 16, "悬垂", 11, kDanger, true, "end");
+            }
+            continue;
+        }
         const std::string edge = call.dangling ? kDanger : kCallEdge;
         svg << rect(callX + 12, y, callW - 24, boxH, call.dangling ? kDangerFill : kCallFill, edge, 7,
                     call.dangling ? 2.0 : 1.0);
         svg << text(callX + 24, y + 17, call.fn + "()", 13, call.dangling ? kDanger : kText, true);
         svg << text(callX + 24, y + 32, call.signature, 10, kNote);
-        if (!call.args.empty()) {
-            std::string args = "实参：";
-            for (std::size_t a = 0; a < call.args.size(); ++a) {
-                if (a) args += ", ";
-                args += call.args[a];
-            }
-            svg << text(callX + callW - 24, y + 32, args, 10, kNote, false, "end");
+        if (!args.empty()) {
+            svg << text(callX + callW - 24, y + 32, "实参：" + args, 10, kNote, false, "end");
         }
         if (call.dangling) {
             svg << text(callX + callW - 24, y + 17, "悬垂", 11, kDanger, true, "end");
+        }
+    }
+
+    /* ---- 生命周期栏：上半截是函数声明的参数表，下半截是调用的绑定关系 ---- */
+    if (showLife) {
+        int lifeRow = 0;
+        for (const std::string &decl : lifeDecls) {
+            const double y = bodyTop + static_cast<double>(lifeRow++) * rowH + (rowH - boxH) / 2;
+            svg << rect(lifeX + 12, y, lifeW - 24, boxH, kLifeFill, kLifeEdge, 7, 1.2);
+            svg << text(lifeX + 24, y + 17, decl, 13, kLifeText, true);
+            svg << text(lifeX + 24, y + 32,
+                        "声明的生命周期参数：引用可以活多久，由调用方决定", 10, kNote);
+        }
+        if (lifeNoteRows) {
+            // 分隔线：上面是「声明」，下面是「每次调用把 'a 绑到谁身上」。
+            const double sepY = bodyTop + static_cast<double>(lifeDeclRows) * rowH + 6;
+            svg << "<line x1=\"" << fmt(lifeX + 12) << "\" y1=\"" << fmt(sepY) << "\" x2=\""
+                << fmt(lifeX + lifeW - 12) << "\" y2=\"" << fmt(sepY) << "\" stroke=\"" << kPanelEdge
+                << "\" stroke-width=\"1\"/>";
+            svg << text(lifeX + 14, sepY + 22, "调用点：'a 绑定到谁", 11, kPanelTitle, true);
+            lifeRow = lifeDeclRows + 1;
+            for (const LifetimeNote &note : lifeNotes) {
+                const double y = bodyTop + static_cast<double>(lifeRow++) * rowH + (rowH - boxH) / 2;
+                const std::string edge = note.warning ? kWarnEdge : kLifeEdge;
+                const std::string fill = note.warning ? kWarnFill : kLifeFill;
+                const std::string ink = note.warning ? kWarnText : kLifeText;
+                svg << rect(lifeX + 12, y, lifeW - 24, boxH, fill, edge, 7, 1.0);
+                svg << text(lifeX + 24, y + 16, note.declLabel + "()", 11.5, ink, true);
+                svg << text(lifeX + 24, y + 31, "第 " + std::to_string(note.line) + " 行：" +
+                                                    note.note,
+                            10, ink);
+            }
         }
     }
 
@@ -558,7 +691,10 @@ std::string Visualizer::renderSvg() const {
         for (std::size_t i = 0; i < result_.issues.size(); ++i) {
             const Issue &issue = result_.issues[i];
             const double y = issueTop + 30 + static_cast<double>(i) * 22;
-            std::string kind = issue.unsupported ? "不支持" : (issue.dangling ? "悬垂" : "冲突");
+            std::string kind = issue.unsupported ? "不支持"
+                               : issue.lifetime  ? "生命周期"
+                               : issue.dangling  ? "悬垂"
+                                                 : "冲突";
             svg << text(40, y, "· [第 " + std::to_string(issue.line) + " 行 · " + kind + "] " +
                                   issue.message,
                         12, issue.unsupported ? "#8a2f2f" : kDanger);
@@ -567,6 +703,12 @@ std::string Visualizer::renderSvg() const {
         svg << text(40, issueTop + 6,
                     "本示例没有借用冲突：值语义各自独立，Move 之后原变量已失效，借用关系合法。（快照点：入口函数 main 返回之前；内层块退出后其变量标灰为「已销毁」）",
                     12, "#1e6b46");
+        if (showLife) {
+            svg << text(40, issueTop + 28,
+                        "生命周期标注：`fn f<'a>(s: &'a String) -> &'a String` 读作「返回的引用和 s 活得一样久」；"
+                        "第四栏列出声明的 'a 在每次调用里绑定到哪个实参。本工具只画标注，不校验它是否成立。",
+                        11, kLifeText);
+        }
     }
 
     // 右下角版本戳：图是谁生成的、什么维护状态，一眼可见。
@@ -607,6 +749,7 @@ std::string Visualizer::renderHtml(const std::string &svg) const {
          << "li{margin:4px 0;font-size:13px;line-height:1.6}\n"
          << "li.unsupported{color:#8a2f2f;font-weight:700}\n"
          << "li.error{color:var(--bad)}\n"
+         << "li.life{color:#146b6e}\n"
          << "li.ok{color:var(--ok)}\n"
          << "footer{margin-top:14px;color:var(--note);font-size:12px}\n"
          << "</style>\n</head>\n<body>\n<div class=\"wrap\">\n";
@@ -624,20 +767,27 @@ std::string Visualizer::renderHtml(const std::string &svg) const {
     if (result_.issues.empty()) {
         html << "      <li class=\"ok\">没有借用冲突：值语义各自独立，Move 之后原变量已失效，"
                 "借用关系合法。</li>\n";
+        if (result_.hasLifetimes()) {
+            html << "      <li class=\"life\">生命周期标注只做解释：图上第四栏列出每个函数声明的参数表，"
+                    "以及每次调用把 'a 绑定到哪个实参；合法性（借用检查器的活）本工具不校验。</li>\n";
+        }
     } else {
         for (const Issue &issue : result_.issues) {
-            html << "      <li class=\"" << (issue.unsupported ? "unsupported" : "error") << "\">第 "
-                 << issue.line << " 行：";
+            html << "      <li class=\""
+                 << (issue.unsupported ? "unsupported" : issue.lifetime ? "life" : "error")
+                 << "\">第 " << issue.line << " 行：";
             if (issue.unsupported) html << "【不支持的结构】";
+            else if (issue.lifetime) html << "【生命周期】";
             else if (issue.dangling) html << "【悬垂指针】";
             else html << "【借用冲突】";
             html << xmlEscape(issue.message) << "</li>\n";
         }
     }
     html << "    </ul>\n  </section>\n";
-    html << "  <footer>由 RustView " << kVersion << " 生成（功能冻结，除明确 BUG 外不再改动）："
+    html << "  <footer>由 RustView " << kVersion << " 生成："
             "文法由本仓库的 ParseEngine 从 <code>rust_subset.gram</code> 生成"
-            "（IELR(1) / C++17），图表是纯字符串拼接的 SVG。</footer>\n";
+            "（IELR(1) / C++17），图表是纯字符串拼接的 SVG。"
+            "生命周期标注只画不校验；1.0 的版面契约保持不变。</footer>\n";
     html << "</div>\n</body>\n</html>\n";
     return html.str();
 }

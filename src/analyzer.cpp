@@ -33,6 +33,18 @@ bool AnalysisResult::hasUnsupported() const {
     return false;
 }
 
+bool AnalysisResult::hasLifetimes() const {
+    if (!lifetimeNotes.empty()) return true;
+    // 没有泛型参数表、也没有 `&'a T` 时，图上一栏都不多画。
+    for (const VarInfo &var : vars) {
+        if (!var.lifetime.empty()) return true;
+    }
+    for (const CallInfo &call : calls) {
+        if (!call.lifetime.empty() || !call.returnLifetime.empty()) return true;
+    }
+    return false;
+}
+
 namespace {
 
 /** @brief 收集函数体里所有 `let` 出来的局部变量名（含嵌套块）。 */
@@ -50,12 +62,6 @@ void collectLocalNames(const Node &node, std::vector<std::string> &out) {
 /** @brief 名字是否在列表里。 */
 bool contains(const std::vector<std::string> &list, const std::string &name) {
     return std::find(list.begin(), list.end(), name) != list.end();
-}
-
-/** @brief 把引用类型还原成源码里的写法：`String` + isRef/isMut -> `&mut String`。 */
-std::string typeSpelling(const std::string &base, bool isRef, bool isMut) {
-    if (!isRef) return base.empty() ? "?" : base;
-    return std::string("&") + (isMut ? "mut " : "") + (base.empty() ? "?" : base);
 }
 
 /** @brief 实参 / 表达式的简短描述（写进调用栈那一栏）。 */
@@ -94,13 +100,24 @@ void Analyzer::collectDeclarations() {
         sig.returnType = item->ret ? item->ret->name : "()";
         sig.returnsRef = item->ret && item->ret->isRef;
         sig.returnsMutRef = item->ret && item->ret->isRef && item->ret->isMut;
+        sig.returnLifetime = lifetimeOf(item->ret.get());
         for (const NodePtr &param : item->params) {
             const bool ref = param->type && param->type->isRef;
             const bool mutRef = param->type && param->type->isRef && param->type->isMut;
             sig.paramTypes.push_back(param->type ? param->type->name : "?");
             sig.paramIsRef.push_back(ref);
             sig.paramIsMutRef.push_back(mutRef);
+            sig.paramLifetimes.push_back(lifetimeOf(param->type.get()));
         }
+        // 生命周期参数表：先按声明顺序登记原文与名单，再查「重名 / 未声明 / 约束指向自己」。
+        for (const NodePtr &lifetime : item->lifetimes) {
+            sig.lifetimes.push_back(lifetime->name);
+            if (!sig.lifetimeList.empty()) sig.lifetimeList += ", ";
+            sig.lifetimeList += lifetime->name;
+            if (lifetime->base) sig.lifetimeList += ": " + lifetime->base->name;
+        }
+        if (!sig.lifetimeList.empty()) sig.lifetimeList = "<" + sig.lifetimeList + ">";
+        checkLifetimeDecls(*item, sig);
 
         // 悬垂预扫描：只看「函数把谁返回出去了」，为调用点提供判据。
         std::vector<std::string> locals;
@@ -108,6 +125,64 @@ void Analyzer::collectDeclarations() {
         scanReturnExpr(*item, sig, locals);
         sigs_[item->name] = sig;
     }
+}
+
+void Analyzer::checkLifetimeDecls(const Node &fnNode, FnSig &sig) {
+    // 这一组检查全部只是「名字对不上」这种低级错误，和借用检查器无关：
+    //   ① 同一个函数里重复声明同名生命周期（`<'a, 'a>`）；
+    //   ② 类型上用了没在 `<...>` 里声明的生命周期（含「整个函数压根没有泛型参数表」）；
+    //   ③ 约束写成 `'a: 'a`（自己约束自己）。
+    // 报错都用 `lifetime = true`：诊断列表里归到「生命周期」一类、退出码仍是 1。
+    std::vector<std::string> seen;
+    for (const NodePtr &lifetime : fnNode.lifetimes) {
+        if (contains(seen, lifetime->name)) {
+            addIssue("生命周期 `" + lifetime->name + "` 在 `fn " + fnNode.name +
+                         "` 的泛型参数表里重复声明",
+                     lifetime->line, false, false, -1, -1, /*lifetime=*/true);
+        }
+        seen.push_back(lifetime->name);
+        if (lifetime->base && lifetime->base->name == lifetime->name) {
+            addIssue("生命周期约束 `" + lifetime->name + ": " + lifetime->base->name +
+                         "` 自己约束自己，没有意义",
+                     lifetime->line, false, false, -1, -1, /*lifetime=*/true);
+        }
+    }
+
+    // 未声明的生命周期按函数合报一条：同一个函数里 `&'a String` → `&'a String`
+    // 必然两处都错，分两条说只是噪声；位置取第一次用到的行。
+    if (sig.lifetimes.empty()) {
+        std::string used;
+        int line = 0;
+        for (std::size_t i = 0; i < sig.paramLifetimes.size(); ++i) {
+            if (sig.paramLifetimes[i].empty()) continue;
+            if (used.empty()) used = sig.paramLifetimes[i];
+            if (line == 0 && i < fnNode.params.size() && fnNode.params[i]->type) {
+                line = fnNode.params[i]->type->line;
+            }
+        }
+        if (used.empty()) used = sig.returnLifetime;
+        if (!used.empty() && line == 0 && fnNode.ret) line = fnNode.ret->line;
+        if (!used.empty()) {
+            addIssue("生命周期 " + used + " 没有声明：`fn " + fnNode.name +
+                         "` 的类型里用了它，但函数没有泛型参数表（应写成 `fn " + fnNode.name +
+                         "<" + used + ">(...)`）",
+                     line > 0 ? line : fnNode.line, false, false, -1, -1, /*lifetime=*/true);
+        }
+        return;
+    }
+
+    auto checkUse = [&](const std::string &name, int line, const std::string &where) {
+        if (name.empty() || contains(sig.lifetimes, name)) return;
+        addIssue("生命周期 `" + name + "` 没有在 `fn " + fnNode.name + "` 的泛型参数表里声明：" +
+                     where + " 用了它",
+                 line, false, false, -1, -1, /*lifetime=*/true);
+    };
+    for (const NodePtr &param : fnNode.params) {
+        checkUse(lifetimeOf(param->type.get()),
+                 param->type ? param->type->line : param->line,
+                 "形参 `" + param->name + "`");
+    }
+    if (fnNode.ret) checkUse(fnNode.ret->lifetime, fnNode.ret->line, "返回类型");
 }
 
 void Analyzer::scanReturnExpr(const Node &fnNode, FnSig &sig, std::vector<std::string> &localNames) {
@@ -219,11 +294,12 @@ void Analyzer::popScope() {
 }
 
 int Analyzer::declareVar(const std::string &name, const std::string &typeName, bool isRef,
-                         bool isMut, int line, bool fnParam) {
+                         bool isMut, int line, bool fnParam, const std::string &lifetime) {
     VarInfo var;
     var.id = static_cast<int>(result_.vars.size());
     var.name = name;
     var.typeName = typeName;
+    var.lifetime = isRef ? lifetime : std::string();  // 生命周期只属于引用
     var.isRef = isRef;
     var.isMut = isMut;
     var.valueSemantics = !isRef && isValueType(typeName);
@@ -343,15 +419,28 @@ void Analyzer::releaseBorrowsOf(int refVarId) {
 }
 
 void Analyzer::addIssue(const std::string &message, int line, bool unsupported, bool dangling,
-                        int focus, int focus2) {
+                        int focus, int focus2, bool lifetime) {
     Issue issue;
     issue.message = message;
     issue.line = line;
     issue.unsupported = unsupported;
     issue.dangling = dangling;
+    issue.lifetime = lifetime;
     issue.focus = focus;
     issue.focus2 = focus2;
     result_.issues.push_back(issue);
+}
+
+void Analyzer::addLifetimeNote(const std::string &fn, int line, const std::string &note,
+                               bool warning) {
+    // 注意：这里**不是** addIssue。生命周期标注的观察结果不进诊断列表，
+    // 也就不影响退出码；它只作为中间一栏的注解画出来。
+    LifetimeNote entry;
+    entry.fn = fn;
+    entry.line = line;
+    entry.note = note;
+    entry.warning = warning;
+    result_.lifetimeNotes.push_back(entry);
 }
 
 /* ------------------------------------------------------------------ *
@@ -360,16 +449,19 @@ void Analyzer::addIssue(const std::string &message, int line, bool unsupported, 
 
 void Analyzer::analyzeFunction(const Node &fnNode) {
     pushScope("fn " + fnNode.name, fnNode.line, /*fnScope=*/true);
+    // 生命周期参数表在这一层可见：只有 `let` / 类型标注能用到它，所以登记在签名表里。
+    const auto current = sigs_.find(fnNode.name);
+    currentFn_ = (current == sigs_.end()) ? nullptr : &current->second;
 
     // 形参就是这一层的绑定。引用形参的「目标」在函数内部不可知（它在调用方那边），
     // 所以 target 留 -1：既不会误判悬垂，也能让 `fn f(s: &String) -> &String { s }`
-    // 这种「把引用原样返回」的通路走通。
+    // 这种「把引用原样返回」的通路走通。生命周期标注原样记在绑定上，画图用。
     for (const NodePtr &param : fnNode.params) {
         const bool ref = param->type && param->type->isRef;
         const bool mutRef = param->type && param->type->isRef && param->type->isMut;
         const std::string base = param->type ? param->type->name : "?";
         const int id = declareVar(param->name, base, ref, mutRef, param->line,
-                                  /*fnParam=*/true);
+                                  /*fnParam=*/true, lifetimeOf(param->type.get()));
         VarInfo &var = result_.vars[static_cast<std::size_t>(id)];
         var.isMut = mutRef;
         var.valueSemantics = false;  // 形参是「外面传进来的东西」，本工具不按拷贝语义处理
@@ -380,6 +472,7 @@ void Analyzer::analyzeFunction(const Node &fnNode) {
         analyzeBlock(*fnNode.body, /*pushOwnScope=*/false);
     }
     popScope();
+    currentFn_ = nullptr;
 }
 
 void Analyzer::analyzeBlock(const Node &block, bool pushOwnScope) {
@@ -418,8 +511,22 @@ void Analyzer::analyzeLet(const Node &letNode) {
 
     // ---- 情况 A：右值是一个引用（`&x` / `&mut x` / 函数返回的引用）----
     if (value.kind == ExprValue::Kind::Reference) {
+        // 生命周期：`let r: &'a T = ...` 写在左值上（文法只给 let 留了 `let r = ...`
+        // 这一种形状，所以实际来源是右值的标注），否则沿用被借变量的标注。
+        std::string lifetime = value.lifetime;
+        // `let r = &x;` / `let r = f(&x)` 这种写法：右值的 ExprValue 没带标注，
+        // 但被借变量身上可能挂着别的引用带过来的标注，此时沿用那条边上的 'a。
+        if (lifetime.empty()) {
+            for (const VarInfo &source : result_.vars) {
+                if (source.id == value.varId && source.isRef && !source.lifetime.empty()) {
+                    lifetime = source.lifetime;
+                    break;
+                }
+            }
+        }
         const int id = declareVar(letNode.name, value.typeName, /*isRef=*/true,
-                                  letNode.isMut || value.mutRef, letNode.line, /*fnParam=*/false);
+                                  letNode.isMut || value.mutRef, letNode.line, /*fnParam=*/false,
+                                  lifetime);
         VarInfo &var = result_.vars[static_cast<std::size_t>(id)];
         var.isMut = letNode.isMut || value.mutRef;
 
@@ -518,6 +625,7 @@ Analyzer::ExprValue Analyzer::analyzeExpr(const Node &expr) {
             out.mutRef = var.isMut;
             out.typeName = var.typeName;
             out.dangling = var.dangling;
+            out.lifetime = var.lifetime;  // 引用转发时，生命周期标注跟着一起走
             return out;
         }
         out.kind = var.valueSemantics ? ExprValue::Kind::Value : ExprValue::Kind::Owned;
@@ -548,6 +656,8 @@ Analyzer::ExprValue Analyzer::analyzeExpr(const Node &expr) {
         out.varId = id;
         out.mutRef = expr.isMut;
         out.typeName = target.typeName;
+        // 表达式上的借用没有生命周期标注（文法只留了 `&x` 一种形状）；
+        // 「'a 从哪儿来」在函数签名那一侧解释，这里不猜。
         return out;
     }
 
@@ -601,17 +711,47 @@ Analyzer::ExprValue Analyzer::analyzeCall(const Node &call, bool valueIsUsed) {
     info.fn = call.name;
     info.line = call.line;
     info.returnsRef = sig.returnsRef;
+    info.lifetime = sig.lifetimeList;
+    info.returnLifetime = sig.returnLifetime;
     std::ostringstream signature;
-    signature << call.name << "(";
+    signature << call.name << sig.lifetimeList << "(";
     for (std::size_t i = 0; i < sig.paramTypes.size(); ++i) {
         if (i) signature << ", ";
-        signature << typeSpelling(sig.paramTypes[i], sig.paramIsRef[i], sig.paramIsMutRef[i]);
+        signature << typeSpelling(sig.paramTypes[i], sig.paramIsRef[i], sig.paramIsMutRef[i],
+                                  sig.paramLifetimes[i]);
     }
-    signature << ") -> " << typeSpelling(sig.returnType, sig.returnsRef, sig.returnsMutRef);
+    signature << ") -> "
+              << typeSpelling(sig.returnType, sig.returnsRef, sig.returnsMutRef, sig.returnLifetime);
     info.signature = signature.str();
     for (const NodePtr &arg : call.args) info.args.push_back(describeExpr(*arg));
 
-    if (sig.returnsRef) {
+    // 生命周期标注的观察记录：把「声明的 'a 挂在哪个实参上」说清楚。
+    // 这里**不判定**合法性（例如返回的 &'a 是否真的来自那个 'a 形参），那是借用检查器的事。
+    std::string firstArg;
+    int firstArgIndex = -1;
+    if (bindTarget >= 0) {
+        for (std::size_t i = 0; i < argv.size() && i < sig.paramTypes.size(); ++i) {
+            if (sig.paramIsRef[i] && argv[i].varId == bindTarget) {
+                firstArgIndex = static_cast<int>(i);
+                break;
+            }
+        }
+        if (firstArgIndex >= 0 && firstArgIndex < static_cast<int>(info.args.size())) {
+            firstArg = info.args[static_cast<std::size_t>(firstArgIndex)];
+        }
+    }
+    if (!sig.lifetimeList.empty()) {
+        std::string note;
+        if (bindTarget < 0) {
+            note = "声明了 " + sig.lifetimeList + "，但这次调用没有可绑定的引用实参";
+        } else if (sig.returnsRef && !sig.returnLifetime.empty()) {
+            note = "返回的 " + sig.returnLifetime + " 绑定到第 " +
+                   std::to_string(firstArgIndex + 1) + " 个实参 `" + firstArg + "` 上";
+        } else {
+            note = "把 " + sig.lifetimeList + " 的第一个可绑定实参记作 `" + firstArg + "`";
+        }
+        addLifetimeNote(call.name, call.line, note);
+    }    if (sig.returnsRef) {
         // 判据一：函数体自己就把局部变量返回出去了 —— 无论怎么调用都悬垂。
         // 判据二：签名返回引用，但调用点给不出可绑定的引用实参 —— 生命周期无处可挂。
         const bool dangling = sig.bodyReturnsLocal || bindTarget < 0;
@@ -641,6 +781,7 @@ Analyzer::ExprValue Analyzer::analyzeCall(const Node &call, bool valueIsUsed) {
             out.varId = bindTarget;
             out.mutRef = bindMut;
             out.typeName = sig.returnType;
+            out.lifetime = sig.returnLifetime;  // 返回类型上标的生命周期，原样转给接收者
         }
         result_.calls.push_back(info);
         return out;
@@ -669,6 +810,11 @@ AnalysisResult Analyzer::run() {
     collectDeclarations();
     for (const NodePtr &item : program_.items) {
         if (item->kind == NodeKind::FnDecl) analyzeFunction(*item);
+    }
+    // 每个函数的泛型参数表原文（没有的话是空串），调用点折行时用。
+    for (LifetimeNote &note : result_.lifetimeNotes) {
+        const auto it = sigs_.find(note.fn);
+        if (it != sigs_.end()) note.declLabel = "fn " + note.fn + it->second.lifetimeList;
     }
     return std::move(result_);
 }

@@ -13,6 +13,7 @@
 """
 
 import argparse
+import re
 import shutil
 import tempfile
 import subprocess
@@ -25,11 +26,19 @@ CASES = [
     ("borrow_conflict.rs", "preview-conflict", "借用冲突：不可变借用还活着时又取 &mut"),
     ("dangling.rs", "preview-dangling", "悬垂指针：返回局部变量的引用"),
     ("use_after_move.rs", "preview-use-after-move", "使用已被 move 的变量"),
+    ("lifetime.rs", "preview-lifetime", "生命周期标注：<'a> 的读法与绑定关系（只画不校验）"),
 ]
 
 
 def convert_png(svg_path: Path, png_path: Path, scale: float) -> bool:
-    """用 cairosvg 把 SVG 转 PNG；任何原因失败都只返回 False（不致命）。
+    """把 SVG 转成 PNG；任何原因失败都只返回 False（不致命）。
+
+    优先用 cairosvg（LibreOffice 系的纯 Python 依赖）；本机没装 libcairo 时
+    退回 Edge / Chrome 的无头截图（Windows 上基本都有 Edge）：
+      1. 把 SVG 包进一个零边距的临时 HTML；
+      2. `--headless --screenshot=... --window-size=W*3,H*3` 一次截图；
+      3. 截完即删临时 HTML。
+    两条路都失败才返回 False，脚本不会因此中断。
 
     @param scale 输出倍率：SVG 的固有宽度会乘以它。默认 3 倍，README 里
                  缩放查看 / 高 DPI 屏幕上文字才不会糊。
@@ -37,13 +46,56 @@ def convert_png(svg_path: Path, png_path: Path, scale: float) -> bool:
     try:
         import cairosvg  # type: ignore
     except Exception:
+        cairosvg = None
+    if cairosvg is not None:
+        try:
+            cairosvg.svg2png(url=str(svg_path), write_to=str(png_path), scale=scale)
+            return True
+        except Exception as exc:  # pragma: no cover - 取决于本机环境
+            print(f"   （cairosvg 转换失败，改用浏览器截图：{exc}）")
+
+    svg_text = svg_path.read_text(encoding="utf-8")
+    m = re.search(r'width="(\d+)" height="(\d+)"', svg_text)
+    if not m:
         return False
+    width, height = int(m.group(1)), int(m.group(2))
+    wrapper = svg_path.with_suffix(".png-wrap.html")
+    wrapper.write_text(
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<style>*{margin:0;padding:0}body{overflow:hidden}</style></head><body>"
+        + svg_text.replace("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", "")
+        + "</body></html>",
+        encoding="utf-8")
     try:
-        cairosvg.svg2png(url=str(svg_path), write_to=str(png_path), scale=scale)
-        return True
-    except Exception as exc:  # pragma: no cover - 取决于本机环境
-        print(f"   （cairosvg 转换失败，跳过 PNG：{exc}）")
+        import shutil
+        for name in ("msedge", "chrome"):
+            exe = shutil.which(name)
+            if exe:
+                break
+        else:
+            # shutil.which 找不到 PATH 里的浏览器时，按 Windows 默认安装位置兜底。
+            from pathlib import Path as P
+            for candidate in (
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            ):
+                if P(candidate).exists():
+                    exe = candidate
+                    break
+            else:
+                return False
+        subprocess.run(
+            [exe, "--headless", "--disable-gpu", "--hide-scrollbars",
+             f"--force-device-scale-factor={scale}",
+             f"--screenshot={png_path.resolve()}",
+             f"--window-size={width},{height}",
+             wrapper.resolve().as_uri()],
+            capture_output=True, timeout=120, check=False)
+        return png_path.exists() and png_path.stat().st_size > 0
+    except Exception:
         return False
+    finally:
+        wrapper.unlink(missing_ok=True)
 
 
 def main() -> int:
