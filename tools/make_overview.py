@@ -141,7 +141,7 @@ def draw() -> Canvas:
             cursor = y + group_tail
 
     canvas.text(40, 859,
-                "仓库关系：RustView 是独立仓库（https://gitee.com/rabbitc999/rust-view），"
+                "仓库关系：RustView 是独立仓库（https://github.com/rabbitc999/rust-view），"
                 "前端由外部 ParseEngine 从 rust_subset.gram 生成（cpp17 + IELR(1)），",
                 footer, NOTE)
     canvas.text(40, 885,

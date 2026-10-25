@@ -1,6 +1,6 @@
 # rust-view —— 代码编写要求与提交要求
 
-本文件是 ParseEngine 仓库 [`AGENTS.md`](https://gitee.com/rabbitc999/ParseEngine) 的副本，
+本文件是 ParseEngine 仓库 [`AGENTS.md`](https://github.com/rabbitc999/ParseEngine) 的副本，
 按 rust-view 自己的路径、命令与远端改写了其中仓库相关的地方；通用规则（文法、注释、提交）
 两份保持一致。
 
@@ -34,7 +34,7 @@
    见 [`CHANGELOG.md`](CHANGELOG.md)）；改动要同步 [`README.md`](README.md) 与
    [`CHANGELOG.md`](CHANGELOG.md)。
 9. `doc/` 放效果图与演示页（`make preview` 重生成）；最后 `git add -A` → commit →
-   `git push origin master`（远端 <https://gitee.com/rabbitc999/rust-view.git>）。
+   `git push origin master`（远端 <https://github.com/rabbitc999/rust-view.git>）。
 
 ## Git 提交信息（全仓库强制约束）
 
