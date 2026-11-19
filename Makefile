@@ -9,23 +9,23 @@
 #   make overview   重生成 doc/overview/ 里的项目总览图（需要 Pillow）
 #   make clean      清掉本工程的构建产物
 #
-# 前端由外部的 ParseEngine 生成器产出（本项目只有 .gram），src/ 里不写 lexer / parser。
+# 前端由外部的 HareParse 生成器产出（本项目只有 .gram），src/ 里不写 lexer / parser。
 .DEFAULT_GOAL := all
 
-# 生成器（ParseEngine）是**外部依赖**：本项目只有 .gram，不含生成器。按下面的顺序找，
+# 生成器（HareParse）是**外部依赖**：本项目只有 .gram，不含生成器。按下面的顺序找，
 # 也可用 PARSER=<路径> 指定（与 metro-lang 独立仓库保持同一套候选顺序）：
-#   ./ParseEngine[.exe]                          本项目根目录（最省事）
-#   ../ParseEngine/build/bin/ParseEngine[.exe]   与 ParseEngine 仓库并排时
-#   ../build/bin/ParseEngine[.exe]               还住在 ParseEngine 仓库里时
+#   ./HareParse[.exe]                          本项目根目录（最省事）
+#   ../HareParse/build/bin/HareParse[.exe]   与 HareParse 仓库并排时
+#   ../build/bin/HareParse[.exe]               还住在 HareParse 仓库里时
 ifeq ($(origin PARSER),undefined)
-PARSER := $(firstword $(wildcard $(CURDIR)/ParseEngine.exe) $(wildcard $(CURDIR)/ParseEngine) \
-                        $(wildcard $(CURDIR)/../ParseEngine/build/bin/ParseEngine.exe) $(wildcard $(CURDIR)/../ParseEngine/build/bin/ParseEngine) \
-                        $(wildcard $(CURDIR)/../build/bin/ParseEngine.exe) $(wildcard $(CURDIR)/../build/bin/ParseEngine))
+PARSER := $(firstword $(wildcard $(CURDIR)/HareParse.exe) $(wildcard $(CURDIR)/HareParse) \
+                        $(wildcard $(CURDIR)/../HareParse/build/bin/HareParse.exe) $(wildcard $(CURDIR)/../HareParse/build/bin/HareParse) \
+                        $(wildcard $(CURDIR)/../build/bin/HareParse.exe) $(wildcard $(CURDIR)/../build/bin/HareParse))
 endif
 
 # 找不到生成器时给一条清楚的提示（不是让编译过程在后续步骤里报莫名的错）。
 ifeq ($(strip $(PARSER)),)
-$(error 找不到 ParseEngine 文法生成器（本项目只有 .gram，生成器是外部依赖）。任选一种：1) make -C ../ParseEngine/source -j4 构建出 ../ParseEngine/build/bin/ParseEngine；2) 复制到本项目根目录；3) make PARSER=/path/to/ParseEngine.exe)
+$(error 找不到 HareParse 文法生成器（本项目只有 .gram，生成器是外部依赖）。任选一种：1) make -C ../HareParse/source -j4 构建出 ../HareParse/build/bin/HareParse；2) 复制到本项目根目录；3) make PARSER=/path/to/HareParse.exe)
 endif
 
 # 只有 `make preview` 需要 Python 3（重生成 doc/ 里的效果图）。
@@ -95,13 +95,13 @@ all: $(BIN)
 # 下面这条自检的提示语只能写 ASCII：Windows 上的 mingw32-make 构造命令行时会把
 # 参数按 ANSI(CP936) 转一遍，中文消息里奇数个字节会把紧邻的转义引号吃掉，整条
 # 命令被拆成几段，报 `unexpected EOF while looking for matching '"'`。
-# 中文含义：ParseEngine 生成失败，请看上面的错误（旧 parser.cpp 已删除，绝不静默用旧产物）。
+# 中文含义：HareParse 生成失败，请看上面的错误（旧 parser.cpp 已删除，绝不静默用旧产物）。
 $(GEN)/parser.cpp: $(CURDIR)/rust_subset.gram $(CURDIR)/epilogue/rust_parse.cpp \
 		$(CURDIR)/include/rust_syntax.hpp $(PARSER)
 	@mkdir -p $(GEN)
 	@rm -f $(GEN)/parser.cpp
 	$(PARSER) $(CURDIR)/rust_subset.gram --lang cpp17 --mode ielr --out-dir $(GEN)
-	@test -s $(GEN)/parser.cpp || { echo "ParseEngine generation failed - see errors above (old parser.cpp removed)"; exit 1; }
+	@test -s $(GEN)/parser.cpp || { echo "HareParse generation failed - see errors above (old parser.cpp removed)"; exit 1; }
 
 gen: $(GEN)/parser.cpp
 

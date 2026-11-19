@@ -6,9 +6,9 @@
 #   sh ci.sh --no-preview    跳过 doc/ 效果图重生成（只验构建与样例）
 #   sh ci.sh --help
 #
-# 环境要求：g++ / make 必需；还要一份 **ParseEngine 文法生成器**
+# 环境要求：g++ / make 必需；还要一份 **HareParse 文法生成器**
 # （本项目只有 .gram，生成器是外部依赖）：用 PARSER=<路径> 指定，或让它待在
-# 项目根目录 / 旁边的 ParseEngine 仓库 build/bin/；不在就报错退出 2。
+# 项目根目录 / 旁边的 HareParse 仓库 build/bin/；不在就报错退出 2。
 # 重生成 doc/ 效果图那步还需要 python3 + cairosvg（缺 cairosvg 时只留 SVG，不算失败）。
 #
 # 退出码：0 全绿；1 有检查失败；2 环境不满足。
@@ -55,20 +55,20 @@ else
     printf '  %-8s 缺失（必需）\n' g++
     missing="$missing g++"
 fi
-# 文法生成器是外部依赖：本项目只有 .gram，生成器由 ParseEngine 仓库产出。
+# 文法生成器是外部依赖：本项目只有 .gram，生成器由 HareParse 仓库产出。
 PARSER=${PARSER:-}
 if [ -z "$PARSER" ]; then
-    for candidate in "./ParseEngine.exe" "./ParseEngine" \
-                     "../ParseEngine/build/bin/ParseEngine.exe" "../ParseEngine/build/bin/ParseEngine" \
-                     "../build/bin/ParseEngine.exe" "../build/bin/ParseEngine"; do
+    for candidate in "./HareParse.exe" "./HareParse" \
+                     "../HareParse/build/bin/HareParse.exe" "../HareParse/build/bin/HareParse" \
+                     "../build/bin/HareParse.exe" "../build/bin/HareParse"; do
         if [ -x "$candidate" ]; then PARSER="$candidate"; break; fi
     done
 fi
 if [ -n "$PARSER" ] && [ -x "$PARSER" ]; then
     printf '  %-8s %s\n' engine "$PARSER"
 else
-    printf '  %-8s 缺失（必需）：用 PARSER=<路径> 指一份 ParseEngine 生成器\n' engine
-    missing="$missing ParseEngine"
+    printf '  %-8s 缺失（必需）：用 PARSER=<路径> 指一份 HareParse 生成器\n' engine
+    missing="$missing HareParse"
 fi
 if [ -n "$missing" ]; then
     echo

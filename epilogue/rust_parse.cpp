@@ -2,7 +2,7 @@
  * @file rust_parse.cpp
  * @brief RustView 的节点池、文法动作与解析入口（由 `rust_subset.gram` 的 `%epilogue` 内嵌）。
  *
- * 这个文件**不单独编译**：`ParseEngine` 生成 `parser.cpp` 时把它整段贴进产物末尾，
+ * 这个文件**不单独编译**：`HareParse` 生成 `parser.cpp` 时把它整段贴进产物末尾，
  * 于是「词法 + 语法 + 建树 + `Engine::runText` 的驱动」是同一份生成结果。
  * `src/` 目录里只有分析器、可视化器和命令行，没有任何手写的解析代码。
  *

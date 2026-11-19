@@ -2,9 +2,9 @@
  * RustView —— 「Rust 借用语义可视化」的权威文法（C++17 · IELR(1)）
  * ------------------------------------------------------------
  * 这份文件是这门极简 Rust 伪代码的**唯一语法定义**，由本仓库的解析器生成器
- * （source/ 的 ParseEngine）生成词法 + 语法分析器：
+ * （source/ 的 HareParse）生成词法 + 语法分析器：
  *
- *   build/bin/ParseEngine rust_subset.gram --lang cpp17 --mode ielr --out-dir <生成目录>
+ *   build/bin/HareParse rust_subset.gram --lang cpp17 --mode ielr --out-dir <生成目录>
  *
  * 分工（和仓库里 magel / metro-lang 的写法一致）：
  *   ① 词法：每个关键字一个 `%token`，字符串 / 数字走 `%token regex`，

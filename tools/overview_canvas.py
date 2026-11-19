@@ -8,7 +8,7 @@ import `Canvas` / `font` 与一套配色常量，按四栏结构把 RustView 画
     python tools/make_overview.py
 
 只用标准库 + Pillow；画的是确定性的示意图，随时可以重新生成。
-本文件底部的 `build()` / `main()` 是自父仓库沿用下来的 ParseEngine 版面，
+本文件底部的 `build()` / `main()` 是自父仓库沿用下来的 HareParse 版面，
 在本仓库里不会被调用（`make_overview.py` 不会走到），保留仅为减少与父仓库的差异。
 
 为什么不用 SVG/HTML：README 在 GitHub 上渲染 PNG 最稳，且这张图文字多，
@@ -229,7 +229,7 @@ def build() -> Canvas:
     c = Canvas()
 
     # ---------- 标题 ----------
-    c.text(40, 58, "ParseEngine 解析器生成器 · 仓库全景", f_h1, TITLE)
+    c.text(40, 58, "HareParse 解析器生成器 · 仓库全景", f_h1, TITLE)
     c.text(40, 88,
            "一份 .gram → 16 种生成模式 → 8 种目标语言 + 文法导出档 · "
            "生成器 / 应用 / 附加库 / 工具四层，核心生成器无第三方依赖",
@@ -478,8 +478,8 @@ def main() -> int:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out_dir = os.path.join(root, "tools", "overview")
     os.makedirs(out_dir, exist_ok=True)
-    png_path = os.path.join(out_dir, "ParseEngine-overview.png")
-    svg_path = os.path.join(out_dir, "ParseEngine-overview.svg")
+    png_path = os.path.join(out_dir, "HareParse-overview.png")
+    svg_path = os.path.join(out_dir, "HareParse-overview.svg")
     build().save(png_path, svg_path)
     print("已生成 %s" % png_path)
     print("已生成 %s" % svg_path)

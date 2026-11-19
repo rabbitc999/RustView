@@ -785,7 +785,7 @@ std::string Visualizer::renderHtml(const std::string &svg) const {
     }
     html << "    </ul>\n  </section>\n";
     html << "  <footer>由 RustView " << kVersion << " 生成："
-            "文法由本仓库的 ParseEngine 从 <code>rust_subset.gram</code> 生成"
+            "文法由本仓库的 HareParse 从 <code>rust_subset.gram</code> 生成"
             "（IELR(1) / C++17），图表是纯字符串拼接的 SVG。"
             "生命周期标注只画不校验；1.0 的版面契约保持不变。</footer>\n";
     html << "</div>\n</body>\n</html>\n";

@@ -1,6 +1,6 @@
 # rust-view —— 代码编写要求与提交要求
 
-本文件是 ParseEngine 仓库 [`AGENTS.md`](https://github.com/rabbitc999/ParseEngine) 的副本，
+本文件是 HareParse 仓库 [`AGENTS.md`](https://github.com/rabbitc999/HareParse) 的副本，
 按 rust-view 自己的路径、命令与远端改写了其中仓库相关的地方；通用规则（文法、注释、提交）
 两份保持一致。
 
@@ -19,9 +19,9 @@
 3. **解析流程放进解析器生成器**：`src/main.cpp` 只调用生成的 `Parser::Engine::runText`
    与 `parseText()`，**绝不手写 lexer / parser**。建树逻辑（`rv_*`）内嵌在
    `%epilogue/rust_parse.cpp` 里，随生成产物一起编译——建树也在生成器流程内。
-4. **生成器（ParseEngine）是外部依赖**：本仓库**只含 `.gram`，不含生成器**。`make` /
-   `make gen` 会按项目根目录 → 旁边的 ParseEngine 仓库 `build/bin/` 的顺序自动找它，
-   也可用 `make PARSER=<路径>` 显式指定。要能单独克隆、单独构建，**不依赖 ParseEngine 仓库**。
+4. **生成器（HareParse）是外部依赖**：本仓库**只含 `.gram`，不含生成器**。`make` /
+   `make gen` 会按项目根目录 → 旁边的 HareParse 仓库 `build/bin/` 的顺序自动找它，
+   也可用 `make PARSER=<路径>` 显式指定。要能单独克隆、单独构建，**不依赖 HareParse 仓库**。
 5. **产物只落在 `build/rust-view/`**：生成的分析器（`gen/parser.cpp` 一带）与可执行文件
    都在这里（已 gitignore）；源码目录保持干净。
 6. **完整文档注释**：头文件与 `.cpp` 的公开类型/函数都要中文 doc comment

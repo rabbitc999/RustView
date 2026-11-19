@@ -3,7 +3,7 @@
 RustView 把一段**极简 Rust 伪代码**画成一张 **SVG 图**和一个 **HTML 展示页**，让不懂 Rust 的人一眼看懂**值语义**、**移动（Move）**、**借用（`&` / `&mut`）**、**块作用域**、**借用冲突**、**悬垂指针**和**生命周期标注的读法**。
 
 整个工具零第三方依赖：图表是标准库字符串拼出来的 SVG，前端由外部的解析器生成器
-**ParseEngine** 从 [rust_subset.gram](rust_subset.gram) 生成（`cpp17` 后端 + `ielr` 模式），
+**HareParse** 从 [rust_subset.gram](rust_subset.gram) 生成（`cpp17` 后端 + `ielr` 模式），
 `src/` 里**没有手写的 lexer / parser**。文法共 **24 个 Token、53 条产生式**，生成报告显示
 **97 个 IELR 状态、0 个未消解冲突**。
 
@@ -22,8 +22,8 @@ RustView 把一段**极简 Rust 伪代码**画成一张 **SVG 图**和一个 **H
 
 ## 快速开始
 
-在本仓库根目录执行（生成器 ParseEngine 是外部依赖，默认从旁边的 ParseEngine 仓库找；
-找不到可 `make PARSER=/path/to/ParseEngine.exe`）：
+在本仓库根目录执行（生成器 HareParse 是外部依赖，默认从旁边的 HareParse 仓库找；
+找不到可 `make PARSER=/path/to/HareParse.exe`）：
 
 ```sh
 make             # 生成 C++17 前端并编译出 build/rust-view/rust-view（Windows 上带 .exe）
@@ -126,7 +126,7 @@ expr    := AMP KW_MUT VARIABLE               { $$ = rv_borrow($3, 1); }
 ### 2. 生成前端
 
 ```sh
-../ParseEngine/build/bin/ParseEngine rust_subset.gram --lang cpp17 --mode ielr --out-dir build/rust-view/gen
+../HareParse/build/bin/HareParse rust_subset.gram --lang cpp17 --mode ielr --out-dir build/rust-view/gen
 ```
 
 产物：`parser.hpp` / `parser.cpp` / `parser_user.h`（`%code` 内嵌区）/ `RESULT.md`（生成报告，
@@ -135,7 +135,7 @@ expr    := AMP KW_MUT VARIABLE               { $$ = rv_borrow($3, 1); }
 ### 3. `main.cpp` 只调用生成出来的接口
 
 ```cpp
-// 语法分析：交给 ParseEngine 生成的 Parser::Engine，绝不手写解析驱动。
+// 语法分析：交给 HareParse 生成的 Parser::Engine，绝不手写解析驱动。
 rustview::NodePtr program;
 std::vector<std::string> parseErrors;
 if (!rustview::parseText(source, program, parseErrors)) { /* 打印错误、退出，不写文件 */ }

@@ -5,7 +5,7 @@
 运行：python tools/make_overview.py
 
 四栏：① 文法与生成前端 ② 借用分析 ③ 可视化 ④ 样例与验收。
-图和 README.md 说的是同一件事：一份极简 Rust 伪代码，经外部 ParseEngine 生成的前端
+图和 README.md 说的是同一件事：一份极简 Rust 伪代码，经外部 HareParse 生成的前端
 变成 AST，再由作用域栈 + 借用状态表分析，最后手写拼出 SVG / HTML。文案改动时记得
 同时改 README.md。
 """
@@ -39,7 +39,7 @@ COLUMNS = (
                 ("类型", "int / String / &T / &mut T 各占一条产生式"),
             )),
             ("生成器", (
-                ("cpp17 + IELR(1)", "由外部 ParseEngine 生成：76 状态 · 0 未消解冲突"),
+                ("cpp17 + IELR(1)", "由外部 HareParse 生成：76 状态 · 0 未消解冲突"),
                 ("建树内嵌", "%code 声明 rv_* 动作；%epilogue 内嵌节点池与 runText 驱动"),
                 ("语义值即下标", "节点池下标（POD），躲开所有权搬运"),
             )),
@@ -142,7 +142,7 @@ def draw() -> Canvas:
 
     canvas.text(40, 859,
                 "仓库关系：RustView 是独立仓库（https://github.com/rabbitc999/rust-view），"
-                "前端由外部 ParseEngine 从 rust_subset.gram 生成（cpp17 + IELR(1)），",
+                "前端由外部 HareParse 从 rust_subset.gram 生成（cpp17 + IELR(1)），",
                 footer, NOTE)
     canvas.text(40, 885,
                 "版本 1.0，功能冻结：除明确 BUG 外不再改动。图表是零依赖的标准库字符串拼 SVG；"
